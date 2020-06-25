@@ -69,9 +69,9 @@ var exeDir string
 var filePermissions = os.ModePerm //permissive 0777
 var cacheDir = "cache/"
 
-var serverAPIAddress = "https://mangadex-test.net/"
+//var serverAPIAddress = "https://mangadex-test.net/"
 
-//var serverAPIAddress = "https://api.mangadex.network/"
+var serverAPIAddress = "https://api.mangadex.network/"
 
 var db *badger.DB
 var running bool
@@ -298,7 +298,9 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("X-Cache", "HIT")
 
 	http.ServeFile(w, r, getFilePath(words))
+	//w.WriteHeader(http.StatusOK)
 	log.Print("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
+	r.Close = true
 }
 
 func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
@@ -360,6 +362,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		}
 	}
 	f.Close()
+	//w.WriteHeader(http.StatusOK)
 
 	log.Println("Got file from upstream in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 
@@ -379,6 +382,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	}
 	log.Println("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 	updateTotalDiskUse(tb)
+	r.Close = true
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -446,6 +450,8 @@ func readSettingsFile() bool {
 			log.Println(err)
 			return false
 		}
+		settings.MaxCacheSizeInMebibytes = settings.MaxCacheSizeInMebibytes * 1024 * 1024
+		settings.MaxKilobitsPerSecond = settings.MaxKilobitsPerSecond * 1000 / 8
 		//TODO: sanity checking  (is the secret the right length, etc...)
 		if len(settings.ClientSecret) != 52 {
 			log.Println("Client secret need to be a 52 char alphanumeric string")
