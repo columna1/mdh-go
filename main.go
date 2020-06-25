@@ -3,9 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"log"
+	"math"
+	"math/rand"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,9 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"net/http"
-
 	badger "github.com/dgraph-io/badger/v2"
+	"github.com/dgraph-io/badger/v2/pb"
 )
 
 type configuration struct {
@@ -49,6 +53,8 @@ type serverReply struct {
 type keyValue struct {
 	ContentType  string `json:"Content_Type"`
 	LastAccessed int64  `json:"last_accessed"`
+	FileSize     int64  `json:"file_size"`
+	LastModified string `json:"last_modified"`
 }
 
 //file structure will be
@@ -65,12 +71,20 @@ var serverAPIAddress = "https://mangadex-test.net/"
 
 var db *badger.DB
 var running bool
+var diskUsed uint64
+var lastRequest time.Time
+var timeOfStop time.Time
 
 func getFilePath(words []string) string {
 	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
 }
 func getFileDir(words []string) string {
 	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1]
+}
+func getFilePathFromBytes(id []byte) string {
+	is := string(id)
+	words := strings.Split(is, "/")
+	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
 }
 
 func checkForFile(words []string) (exists bool) {
@@ -99,12 +113,140 @@ func handleNoFatal(err error) {
 	}
 }
 
+func evictCache() { //just blindly removes something from cache
+	// The following code generates 10 random keys
+	lowestNum := int64(math.MaxInt64)
+	var lowestKey []byte
+	var lowestNumSize int64
+	for i := 0; i < 10; i++ {
+		var keys [][]byte
+		count := 0
+		stream := db.NewStream()
+		stream.NumGo = 16
+
+		// overide stream.KeyToList as we only want keys. Also
+		// we can take only first version for the key.
+		stream.KeyToList = func(key []byte, itr *badger.Iterator) (*pb.KVList, error) {
+			l := &pb.KVList{}
+			// Since stream framework copies the item's key while calling
+			// KeyToList, we can directly append key to list.
+			l.Kv = append(l.Kv, &pb.KV{Key: key})
+			return l, nil
+		}
+
+		// The bigger the sample size, the more randomness in the outcome.
+		sampleSize := 1000
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stream.Send = func(l *pb.KVList) error {
+			if count >= sampleSize {
+				return nil
+			}
+			// Collect "keys" equal to sample size
+			for _, kv := range l.Kv {
+				keys = append(keys, kv.Key)
+				count++
+				if count >= sampleSize {
+					cancel()
+					return nil
+				}
+			}
+			return nil
+		}
+
+		if err := stream.Orchestrate(ctx); err != nil && err != context.Canceled {
+			panic(err)
+		}
+		// Pick a random key from the list of keys
+		//fmt.Printf("%s\n", keys[rand.Intn(len(keys))])
+
+		err := db.View(func(txn *badger.Txn) error {
+			item, err := txn.Get(keys[rand.Intn(len(keys))])
+			err = item.Value(func(val []byte) error {
+				var entry keyValue
+				json.Unmarshal(val, &entry)
+				if entry.LastAccessed < lowestNum {
+					lowestKey = keys[rand.Intn(len(keys))]
+					lowestNum = entry.LastAccessed
+					lowestNumSize = entry.FileSize
+				}
+				return nil
+			})
+			handleNoFatal(err)
+
+			return err
+		})
+		if err != nil {
+			log.Println("err")
+			log.Println(err)
+		}
+	}
+	//delete lowest key and update diskuse
+	err := db.Update(func(txn *badger.Txn) error {
+		//delete key
+		log.Println("deleted " + string(lowestKey))
+		log.Println("removing " + getFilePathFromBytes(lowestKey))
+		os.Remove(getFilePathFromBytes(lowestKey))
+		err := txn.Delete(lowestKey)
+		return err
+	})
+	if err != nil {
+		log.Println("err")
+		log.Println(err)
+	} else {
+		updateTotalDiskUse(0 - int(lowestNumSize))
+	}
+}
+
+func updateTotalDiskUse(bytes int) {
+	log.Println("updating Disk use")
+	log.Println(bytes)
+	err := db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte("totalDiskUsed"))
+		if err != nil && err.Error() == "Key not found" {
+			log.Println("Disk usage stat not found, creating it. Using " + strconv.Itoa(bytes) + " bytes")
+			v := make([]byte, 8)
+			binary.LittleEndian.PutUint64(v, uint64(bytes))
+			diskUsed = uint64(bytes)
+			err := txn.Set([]byte("totalDiskUsed"), v)
+			handleNoFatal(err)
+			return nil
+		} else if err != nil {
+			return err
+		}
+		err = item.Value(func(val []byte) error {
+
+			in := binary.LittleEndian.Uint64(val)
+			if bytes < 0 {
+				in -= uint64(math.Abs(float64(bytes)))
+			} else {
+				in += uint64(bytes)
+			}
+			log.Println("Disk used is now " + strconv.FormatUint(in, 10) + " bytes")
+			diskUsed = in
+			v := make([]byte, 8)
+			binary.LittleEndian.PutUint64(v, in)
+			err := txn.Set([]byte("totalDiskUsed"), v)
+			handleNoFatal(err)
+			return nil
+		})
+		handleNoFatal(err)
+
+		return err
+	})
+	if err != nil {
+		log.Println("err")
+		log.Println(err)
+	}
+}
+
 func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	//cache hit
 	//TODO: insert key if it's missing
 	//TODO: browser cache
 	st := time.Now()
 	contentType := ""
+	lm := ""
 	id := words[0] + "/" + words[1] + "/" + words[2]
 	log.Println("Cache hit for " + id)
 	err := db.Update(func(txn *badger.Txn) error {
@@ -121,9 +263,14 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 			var entry keyValue
 			json.Unmarshal(val, &entry)
 			contentType = entry.ContentType
+			lm = entry.LastModified
 			v, _ := json.Marshal(entry)
 			txn.Set([]byte(id), v)
+			entry.LastAccessed = time.Now().Unix()
 
+			json, _ := json.Marshal(entry)
+			err := txn.Set([]byte(id), json)
+			handleNoFatal(err)
 			return nil
 		})
 		handleNoFatal(err)
@@ -137,10 +284,14 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
+	if lm != "" {
+		w.Header().Set("Last-Modified", lm)
+	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Access-Control-Allow-Origin", "https://mangadex.org")
 	w.Header().Set("Access-Control-Expose-Headers", "*")
 	w.Header().Set("Timing-Allow-Origin", "https://mangadex.org")
+	w.Header().Set("X-Time-Taken", strconv.Itoa(int(time.Since(st).Milliseconds())))
 
 	http.ServeFile(w, r, getFilePath(words))
 	log.Print("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
@@ -157,40 +308,69 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	imgData, _ := ioutil.ReadAll(resp.Body) //NewReader(resp.Body)
-	log.Println("Got file from upstream in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 	ct := resp.Header.Get("Content-Type")
 	lmt := resp.Header.Get("Last-Modified")
 	log.Println(lmt)
-
 	if ct != "" {
 		w.Header().Set("Content-Type", ct)
+	}
+	if lmt != "" {
+		w.Header().Set("Last-Modified", lmt)
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Access-Control-Allow-Origin", "https://mangadex.org")
 	w.Header().Set("Access-Control-Expose-Headers", "*")
 	w.Header().Set("Timing-Allow-Origin", "https://mangadex.org")
-	w.Write(imgData)
+	w.Header().Set("X-Time-Taken", strconv.Itoa(int(time.Since(st).Milliseconds())))
+
+	//imgData, _ := ioutil.ReadAll(resp.Body) //NewReader(resp.Body)
 	dir := getFileDir(words)
 	os.MkdirAll(dir, 0664)
 	fn := getFilePath(words)
-	ioutil.WriteFile(fn, imgData, 0664)
+	f, fileerr := os.Create(fn)
+	if fileerr != nil {
+		log.Println("could not open file to write")
+	}
+	//ioutil.WriteFile(fn, imgData, 0664)
+	buf := make([]byte, 1000000) //one megabyte
+	tb := 0
+	for {
+		n, err := resp.Body.Read(buf)
+		w.Write(buf[:n])
+		if fileerr == nil {
+			f.Write(buf[:n])
+		}
+		tb += n
+		//log.Println(n, err)
+		if err == io.EOF {
+			break
+		}
+	}
+	f.Close()
+
+	log.Println("Got file from upstream in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
+
+	//w.Write(imgData)
 	err = db.Update(func(txn *badger.Txn) error {
 		t := keyValue{
 			ContentType:  ct,
 			LastAccessed: time.Now().Unix(),
+			LastModified: lmt,
+			FileSize:     int64(tb),
 		}
 		json, _ := json.Marshal(t)
-		err := txn.Set([]byte(words[0]+"/"+words[1]+"/"+words[2]), json)
+		err := txn.Set([]byte(id), json)
 		return err
 	})
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
 	}
 	log.Println("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
+	updateTotalDiskUse(tb)
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	lastRequest = time.Now()
 	words := strings.Split(r.URL.String(), "/")
 	//log.Println(words)
 	indOffset := 0
@@ -211,6 +391,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	} else if r.URL.String() == "/stop" {
 		running = false
 		w.Write([]byte("Shutting server down!"))
+		timeOfStop = time.Now()
 	} else {
 		//error
 		log.Printf("failed to serve request " + r.URL.String())
@@ -353,6 +534,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
+	//evictCache()
 
 	/*
 		err = db.Update(func(txn *badger.Txn) error {
@@ -384,6 +566,7 @@ func main() {
 		go func() {
 			oscall := <-c
 			log.Printf("system call:%+v", oscall)
+			timeOfStop = time.Now()
 			//call shutdown
 			running = false
 			//cancel()
@@ -403,11 +586,20 @@ func main() {
 		for running {
 			//log.Println("heartbeat")
 			time.Sleep(1 * time.Second)
+			for uint64(settings.MaxCacheSizeInMebibytes)*1024 < diskUsed {
+				evictCache()
+			}
+		}
+		log.Println("stopping server..")
+		sendStop()
+		log.Println("Stop sent to server, waiting for requests to stop or timeout to expire (max " + strconv.Itoa(settings.GracefulShutdownWaitSeconds) + " seconds_")
+		for int(time.Since(timeOfStop)/time.Second) < settings.GracefulShutdownWaitSeconds && int(time.Since(lastRequest)/time.Second) < 10 {
+			time.Sleep(1 * time.Second)
+			log.Println("waiting to shut down the server")
 		}
 		log.Println("Shutting down server")
 		if err := srv.Shutdown(context.TODO()); err != nil {
-			panic(err) // failure/timeout shutting down the server gracefully
+			panic(err)
 		}
 	}
-	sendStop()
 }
