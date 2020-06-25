@@ -314,6 +314,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	defer resp.Body.Close()
 	ct := resp.Header.Get("Content-Type")
 	cl := resp.Header.Get("Content-Length")
 	lmt := resp.Header.Get("Last-Modified")
@@ -503,6 +504,7 @@ func sendPing() bool {
 		log.Fatalln(err)
 		return false
 	}
+	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err := json.Unmarshal(body, &reply); err != nil {

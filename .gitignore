@@ -9,3 +9,4 @@ tmp/oldmain.og
 cert.key
 cert.crt
 __debug_bin
+settings.json
