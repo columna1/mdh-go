@@ -66,14 +66,19 @@ var reply serverReply
 var version = 13
 var exeDir string
 
+var filePermissions = os.ModePerm //permissive 0777
 var cacheDir = "cache/"
+
 var serverAPIAddress = "https://mangadex-test.net/"
+
+//var serverAPIAddress = "https://api.mangadex.network/"
 
 var db *badger.DB
 var running bool
 var diskUsed uint64
 var lastRequest time.Time
 var timeOfStop time.Time
+var lastPing time.Time
 
 func getFilePath(words []string) string {
 	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
@@ -89,14 +94,10 @@ func getFilePathFromBytes(id []byte) string {
 
 func checkForFile(words []string) (exists bool) {
 	//urls will look like /data/aaf33f3f33f3ff35abaf/m2.png
-	//words := strings.Split(file, "/")
 	filePath := getFilePath(words)
-	//log.Println(filePath)
 	if _, err := os.Stat(filePath); err == nil {
-		//log.Println("exists")
 		exists = true
 	} else if os.IsNotExist(err) {
-		//log.Println("does not exist")
 		exists = false
 	}
 	return
@@ -199,8 +200,8 @@ func evictCache() { //just blindly removes something from cache
 }
 
 func updateTotalDiskUse(bytes int) {
-	log.Println("updating Disk use")
-	log.Println(bytes)
+	//log.Println("updating Disk use")
+	//log.Println(bytes)
 	err := db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte("totalDiskUsed"))
 		if err != nil && err.Error() == "Key not found" {
@@ -222,7 +223,7 @@ func updateTotalDiskUse(bytes int) {
 			} else {
 				in += uint64(bytes)
 			}
-			log.Println("Disk used is now " + strconv.FormatUint(in, 10) + " bytes")
+			//log.Println("Disk used is now " + strconv.FormatUint(in, 10) + " bytes")
 			diskUsed = in
 			v := make([]byte, 8)
 			binary.LittleEndian.PutUint64(v, in)
@@ -242,7 +243,6 @@ func updateTotalDiskUse(bytes int) {
 
 func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	//cache hit
-	//TODO: insert key if it's missing
 	//TODO: browser cache
 	st := time.Now()
 	contentType := ""
@@ -259,7 +259,6 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 			// This func with val would only be called if item.Value encounters no error.
 
 			// Accessing val here is valid.
-			//fmt.Printf("The answer is: %s\n", val)
 			var entry keyValue
 			json.Unmarshal(val, &entry)
 			contentType = entry.ContentType
@@ -292,6 +291,11 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("Access-Control-Expose-Headers", "*")
 	w.Header().Set("Timing-Allow-Origin", "https://mangadex.org")
 	w.Header().Set("X-Time-Taken", strconv.Itoa(int(time.Since(st).Milliseconds())))
+	w.Header().Set("Cache-Control", "public, max-age=1209600")
+	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
+	w.Header().Set("X-URI", "/"+id)
+	w.Header().Set("connection", "keep-alive")
+	w.Header().Set("X-Cache", "HIT")
 
 	http.ServeFile(w, r, getFilePath(words))
 	log.Print("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
@@ -309,8 +313,9 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		return
 	}
 	ct := resp.Header.Get("Content-Type")
+	cl := resp.Header.Get("Content-Length")
 	lmt := resp.Header.Get("Last-Modified")
-	log.Println(lmt)
+	//log.Println(lmt)
 	if ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
@@ -322,16 +327,25 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("Access-Control-Expose-Headers", "*")
 	w.Header().Set("Timing-Allow-Origin", "https://mangadex.org")
 	w.Header().Set("X-Time-Taken", strconv.Itoa(int(time.Since(st).Milliseconds())))
+	w.Header().Set("X-Cache", "MISS")
+	w.Header().Set("Cache-Control", "public, max-age=1209600")
+	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
+	w.Header().Set("X-URI", "/"+id)
+	w.Header().Set("Content-Length", cl)
+	w.Header().Set("connection", "keep-alive")
 
-	//imgData, _ := ioutil.ReadAll(resp.Body) //NewReader(resp.Body)
 	dir := getFileDir(words)
-	os.MkdirAll(dir, 0664)
+	err = os.MkdirAll(dir, filePermissions)
+	if err != nil {
+		log.Println("Could not create directory for file")
+		log.Println(err)
+	}
 	fn := getFilePath(words)
 	f, fileerr := os.Create(fn)
 	if fileerr != nil {
 		log.Println("could not open file to write")
+		log.Println(fileerr)
 	}
-	//ioutil.WriteFile(fn, imgData, 0664)
 	buf := make([]byte, 1000000) //one megabyte
 	tb := 0
 	for {
@@ -341,7 +355,6 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 			f.Write(buf[:n])
 		}
 		tb += n
-		//log.Println(n, err)
 		if err == io.EOF {
 			break
 		}
@@ -350,7 +363,6 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 
 	log.Println("Got file from upstream in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 
-	//w.Write(imgData)
 	err = db.Update(func(txn *badger.Txn) error {
 		t := keyValue{
 			ContentType:  ct,
@@ -372,7 +384,6 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	lastRequest = time.Now()
 	words := strings.Split(r.URL.String(), "/")
-	//log.Println(words)
 	indOffset := 0
 	for i := 0; i < len(words); i++ {
 		if words[i] == "data" || words[i] == "data-saver" {
@@ -389,14 +400,16 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			handleCacheMiss(w, r, words[indOffset:indOffset+3])
 		}
 	} else if r.URL.String() == "/stop" {
+
+		//for debug use
 		running = false
 		w.Write([]byte("Shutting server down!"))
 		timeOfStop = time.Now()
+
 	} else {
 		//error
 		log.Printf("failed to serve request " + r.URL.String())
 	}
-	//fmt.Println(r.URL)
 }
 
 func startHTTPServer(wg *sync.WaitGroup) *http.Server {
@@ -447,7 +460,7 @@ func readSettingsFile() bool {
 		// path/to/whatever does *not* exist write default and exit
 		log.Println("No settings file found, writing out an example for you to modify")
 		file, _ := json.MarshalIndent(settings, "", "	")
-		err := ioutil.WriteFile("settings.json", file, 0644)
+		err := ioutil.WriteFile("settings.json", file, filePermissions)
 		if err != nil {
 			log.Println("Could not write settings.json")
 		}
@@ -485,8 +498,6 @@ func sendPing() bool {
 		return false
 	}
 	body, err := ioutil.ReadAll(resp.Body)
-	//log.Println("response:")
-	//log.Println(string(body))
 
 	if err := json.Unmarshal(body, &reply); err != nil {
 		log.Fatalln(err)
@@ -504,14 +515,15 @@ func sendPing() bool {
 	}
 
 	tls := reply.TLS
-	ioutil.WriteFile(exeDir+"/cert.key", []byte(tls.PrivateKey), 0664)
-	ioutil.WriteFile(exeDir+"/cert.crt", []byte(tls.Certificate), 0664)
+	ioutil.WriteFile(exeDir+"/cert.key", []byte(tls.PrivateKey), filePermissions)
+	ioutil.WriteFile(exeDir+"/cert.crt", []byte(tls.Certificate), filePermissions)
+	lastPing = time.Now()
 	return true
 }
 
 func sendStop() bool {
 	log.Println("Sending stop")
-	resp, err := http.Post(serverAPIAddress+"stop", "application/json", bytes.NewBuffer([]byte(`{"secret":"h8gb7v8wgvxhgmvcsbc31nvmxk2f69mjcww2yw9xs8ha4d1f26q0"}`)))
+	resp, err := http.Post(serverAPIAddress+"stop", "application/json", bytes.NewBuffer([]byte(`{"secret":"`+settings.ClientSecret+`"}`)))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -534,30 +546,18 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	//evictCache()
-
-	/*
-		err = db.Update(func(txn *badger.Txn) error {
-			t := keyValue{
-				ContentType:  "image/png",
-				LastAccessed: 1593077955,
-			}
-			json, _ := json.Marshal(t)
-			err := txn.Set([]byte("data/8172a46adc798f4f4ace6663322a383e/B18.png"), json)
-			return err
-		})
-		if err != nil {
-			log.Fatalln(err)
-		}*/
 
 	if !readSettingsFile() {
 		running = false
 	}
 	if running {
 		//connect to server, send ping
-		sendPing()
-		log.Println("ping succeeded")
-		log.Println("URL is " + reply.URL)
+		if sendPing() {
+			log.Println("ping succeeded")
+			log.Println("URL is " + reply.URL)
+		} else {
+			running = false
+		}
 	}
 	if running {
 		c := make(chan os.Signal, 1)
@@ -567,6 +567,7 @@ func main() {
 			oscall := <-c
 			log.Printf("system call:%+v", oscall)
 			timeOfStop = time.Now()
+			lastRequest = time.Now()
 			//call shutdown
 			running = false
 			//cancel()
@@ -577,23 +578,19 @@ func main() {
 		httpServerExitDone.Add(1)
 		srv := startHTTPServer(httpServerExitDone)
 		log.Println("server started")
-		//<-ctx.Done()
-		/*go func() {
-			log.Println("shutting down in 30 seconds")
-			time.Sleep(29 * time.Second)
-			running = false
-		}()*/
 		for running {
-			//log.Println("heartbeat")
 			time.Sleep(1 * time.Second)
 			for uint64(settings.MaxCacheSizeInMebibytes)*1024 < diskUsed {
 				evictCache()
+			}
+			if time.Since(lastPing).Seconds() >= 44 {
+				sendPing()
 			}
 		}
 		log.Println("stopping server..")
 		sendStop()
 		log.Println("Stop sent to server, waiting for requests to stop or timeout to expire (max " + strconv.Itoa(settings.GracefulShutdownWaitSeconds) + " seconds_")
-		for int(time.Since(timeOfStop)/time.Second) < settings.GracefulShutdownWaitSeconds && int(time.Since(lastRequest)/time.Second) < 10 {
+		for int(time.Since(timeOfStop).Seconds()) < settings.GracefulShutdownWaitSeconds && int(time.Since(lastRequest).Seconds()) < 10 {
 			time.Sleep(1 * time.Second)
 			log.Println("waiting to shut down the server")
 		}
