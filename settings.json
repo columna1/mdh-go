@@ -1,0 +1,9 @@
+{
+	"ClientSecret": "h8gb7v8wgvxhgmvcsbc31nvmxk2f69mjcww2yw9xs8ha4d1f26q0",
+	"ClientHostname": "0.0.0.0",
+	"ClientPort": 9000,
+	"GracefulShutdownWaitSeconds": 60,
+	"MaxCacheSizeInMebibytes": 20000,
+	"MaxKilobitsPerSecond": 0,
+	"MaxMebibytesPerHour": 0
+}
