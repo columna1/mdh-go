@@ -397,7 +397,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	lastRequest = time.Now()
-	words := strings.Split(r.URL.String(), "/")
+	words := strings.Split(r.URL.Path, "/")
 	indOffset := 0
 	for i := 0; i < len(words); i++ {
 		if words[i] == "data" || words[i] == "data-saver" {
@@ -424,7 +424,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 		//error
-		log.Printf("failed to serve request " + r.URL.String())
+		log.Printf("failed to serve request " + r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
