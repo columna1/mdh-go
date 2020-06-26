@@ -610,7 +610,7 @@ func main() {
 			//cancel()
 		}()
 
-		log.Println("Starting html server (not really(yet))")
+		log.Println("Starting html server.")
 		httpServerExitDone := &sync.WaitGroup{}
 		httpServerExitDone.Add(1)
 		srv := startHTTPServer(httpServerExitDone)
