@@ -399,7 +399,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	lastRequest = time.Now()
-	words := strings.Split(r.URL.String(), "/")
+	words := strings.Split(r.URL.Path, "/")
 	indOffset := 0
 	for i := 0; i < len(words); i++ {
 		if words[i] == "data" || words[i] == "data-saver" {
@@ -426,14 +426,18 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 		//error
-		log.Printf("failed to serve request " + r.URL.String())
+		log.Printf("failed to serve request " + r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
 func startHTTPServer(wg *sync.WaitGroup) *http.Server {
-	srv := &http.Server{Addr: settings.ClientHostname + ":" + strconv.Itoa(settings.ClientPort)}
-	log.Println(settings.ClientHostname + ":" + strconv.Itoa(settings.ClientPort))
+	addr := settings.ClientHostname
+	if !strings.Contains(addr, ":") {
+		addr += ":" + strconv.Itoa(settings.ClientPort)
+	}
+	srv := &http.Server{Addr: addr}
+	log.Println("bind to " + addr + " externalPort: " + strconv.Itoa(settings.ClientPort))
 	http.HandleFunc("/", handleRequest)
 
 	go func() {
@@ -472,7 +476,7 @@ func readSettingsFile() bool {
 			log.Println("Client secret need to be a 52 char alphanumeric string")
 			return false
 		}
-		if settings.MaxCacheSizeInMebibytes < 10240 {
+		if settings.MaxCacheSizeInMebibytes < 10240*1024*1024 {
 			log.Println("You need a cache of over 10GB")
 			return false
 		}
@@ -621,7 +625,7 @@ func main() {
 		log.Println("server started")
 		for running {
 			time.Sleep(1 * time.Second)
-			for uint64(settings.MaxCacheSizeInMebibytes)*1024 < diskUsed {
+			for uint64(settings.MaxCacheSizeInMebibytes) < diskUsed {
 				evictCache()
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
