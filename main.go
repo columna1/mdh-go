@@ -416,9 +416,11 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	} else if r.URL.String() == "/stop" {
 
 		//for debug use
-		running = false
-		w.Write([]byte("Shutting server down!"))
-		timeOfStop = time.Now()
+		/*
+			running = false
+			w.Write([]byte("Shutting server down!"))
+			timeOfStop = time.Now()
+		*/
 
 	} else {
 		//error
