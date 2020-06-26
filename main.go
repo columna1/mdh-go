@@ -430,8 +430,12 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func startHTTPServer(wg *sync.WaitGroup) *http.Server {
-	srv := &http.Server{Addr: settings.ClientHostname + ":" + strconv.Itoa(settings.ClientPort)}
-	log.Println(settings.ClientHostname + ":" + strconv.Itoa(settings.ClientPort))
+	addr := settings.ClientHostname
+	if !strings.Contains(addr, ":") {
+		addr += ":" + strconv.Itoa(settings.ClientPort)
+	}
+	srv := &http.Server{Addr: addr}
+	log.Println("bind to " + addr + " externalPort: " + strconv.Itoa(settings.ClientPort))
 	http.HandleFunc("/", handleRequest)
 
 	go func() {
