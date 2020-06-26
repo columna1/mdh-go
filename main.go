@@ -78,8 +78,7 @@ var cacheDir = "cache/"
 
 //var serverAPIAddress = "https://mangadex-test.net/"
 
-//var serverAPIAddress = "https://api.mangadex.network/"
-var serverAPIAddress = ""
+var serverAPIAddress = "https://api.mangadex.network/"
 
 var db *badger.DB
 var running bool
@@ -585,7 +584,9 @@ func main() {
 	if !readSettingsFile() {
 		running = false
 	}
-	serverAPIAddress = settings.ServerEndpoint
+	if len(settings.ServerEndpoint) > 1 {
+		serverAPIAddress = settings.ServerEndpoint
+	}
 	if running {
 		//connect to server, send ping
 		if sendPing() {
