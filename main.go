@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"flag"
 	"io"
 	"io/ioutil"
 	"log"
@@ -14,14 +16,18 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v2"
+	"github.com/dgraph-io/badger/v2/options"
 	"github.com/dgraph-io/badger/v2/pb"
 )
+
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to a `file`")
 
 type configuration struct {
 	ClientSecret                string
@@ -31,6 +37,7 @@ type configuration struct {
 	MaxCacheSizeInMebibytes     int
 	MaxKilobitsPerSecond        int
 	MaxMebibytesPerHour         int
+	ServerEndpoint              string
 }
 type pingData struct {
 	Secret       string `json:"secret"`
@@ -71,7 +78,8 @@ var cacheDir = "cache/"
 
 //var serverAPIAddress = "https://mangadex-test.net/"
 
-var serverAPIAddress = "https://api.mangadex.network/"
+//var serverAPIAddress = "https://api.mangadex.network/"
+var serverAPIAddress = ""
 
 var db *badger.DB
 var running bool
@@ -349,19 +357,21 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		log.Println("could not open file to write")
 		log.Println(fileerr)
 	}
+	buffWriter := bufio.NewWriterSize(f, 128000)
 	buf := make([]byte, 1000000) //one megabyte
 	tb := 0
 	for {
 		n, err := resp.Body.Read(buf)
 		w.Write(buf[:n])
 		if fileerr == nil {
-			f.Write(buf[:n])
+			buffWriter.Write(buf[:n])
 		}
 		tb += n
 		if err == io.EOF {
 			break
 		}
 	}
+	buffWriter.Flush()
 	f.Close()
 	//w.WriteHeader(http.StatusOK)
 
@@ -545,12 +555,27 @@ func sendStop() bool {
 }
 
 func main() {
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	exePath, err := os.Executable()
 	exeDir = filepath.Dir(exePath)
 	running = true
 	//opening database
 	do := badger.DefaultOptions(exeDir + "/badger")
 	do.Truncate = true
+	do.ValueLogLoadingMode = options.FileIO
+
 	db, err = badger.Open(do)
 	if err != nil {
 		log.Fatal(err)
@@ -560,6 +585,7 @@ func main() {
 	if !readSettingsFile() {
 		running = false
 	}
+	serverAPIAddress = settings.ServerEndpoint
 	if running {
 		//connect to server, send ping
 		if sendPing() {

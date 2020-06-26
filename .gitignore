@@ -11,4 +11,7 @@ cert.crt
 __debug_bin
 settings.json
 main
-main.exe
+*.exe
+*.xml
+*.iml
+*.prof
