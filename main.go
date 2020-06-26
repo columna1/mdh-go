@@ -194,8 +194,9 @@ func evictCache() { //just blindly removes something from cache
 		//delete key
 		log.Println("deleted " + string(lowestKey))
 		log.Println("removing " + getFilePathFromBytes(lowestKey))
-		os.Remove(getFilePathFromBytes(lowestKey))
-		err := txn.Delete(lowestKey)
+		err := os.Remove(getFilePathFromBytes(lowestKey))
+		handleNoFatal(err)
+		err = txn.Delete(lowestKey)
 		return err
 	})
 	if err != nil {
@@ -345,16 +346,19 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("connection", "keep-alive")
 
 	dir := getFileDir(words)
-	err = os.MkdirAll(dir, filePermissions)
+	fileerr := os.MkdirAll(dir, filePermissions)
+	var f *os.File
+
 	if err != nil {
 		log.Println("Could not create directory for file")
 		log.Println(err)
-	}
-	fn := getFilePath(words)
-	f, fileerr := os.Create(fn)
-	if fileerr != nil {
-		log.Println("could not open file to write")
-		log.Println(fileerr)
+	} else {
+		fn := getFilePath(words)
+		f, fileerr = os.Create(fn)
+		if fileerr != nil {
+			log.Println("could not open file to write")
+			log.Println(fileerr)
+		}
 	}
 	filebuffWriter := bufio.NewWriterSize(f, 128000)
 	httpbuffWriter := bufio.NewWriterSize(f, 128000)
@@ -362,13 +366,34 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	tb := 0
 	for {
 		n, err := resp.Body.Read(buf)
-		httpbuffWriter.Write(buf[:n])
+		_, err2 := httpbuffWriter.Write(buf[:n])
 		if fileerr == nil {
 			filebuffWriter.Write(buf[:n])
 		}
 		tb += n
 		if err == io.EOF {
 			break
+		} else if err != nil {
+			//we got an actual error
+			log.Println("failed to get image")
+			log.Println(err)
+			if fileerr == nil {
+				f.Close()
+				err = os.Remove(getFilePath(words))
+				handleNoFatal(err)
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		} else if err2 != nil {
+			log.Println("failed to serve image")
+			log.Println(err)
+			if fileerr == nil {
+				f.Close()
+				err = os.Remove(getFilePath(words))
+				handleNoFatal(err)
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 	}
 	filebuffWriter.Flush()
@@ -378,6 +403,8 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 
 	log.Println("Got file from upstream in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 
+	//if we couldn't wite a file maybe we should skip the db entry but it doesn't hurt as
+	//it's not used for cache hit lookup
 	err = db.Update(func(txn *badger.Txn) error {
 		t := keyValue{
 			ContentType:  ct,
