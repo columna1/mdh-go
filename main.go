@@ -356,21 +356,23 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		log.Println("could not open file to write")
 		log.Println(fileerr)
 	}
-	buffWriter := bufio.NewWriterSize(f, 128000)
+	filebuffWriter := bufio.NewWriterSize(f, 128000)
+	httpbuffWriter := bufio.NewWriterSize(f, 128000)
 	buf := make([]byte, 1000000) //one megabyte
 	tb := 0
 	for {
 		n, err := resp.Body.Read(buf)
-		w.Write(buf[:n])
+		httpbuffWriter.Write(buf[:n])
 		if fileerr == nil {
-			buffWriter.Write(buf[:n])
+			filebuffWriter.Write(buf[:n])
 		}
 		tb += n
 		if err == io.EOF {
 			break
 		}
 	}
-	buffWriter.Flush()
+	filebuffWriter.Flush()
+	httpbuffWriter.Flush()
 	f.Close()
 	//w.WriteHeader(http.StatusOK)
 
