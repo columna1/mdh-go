@@ -470,7 +470,7 @@ func readSettingsFile() bool {
 			log.Println("Client secret need to be a 52 char alphanumeric string")
 			return false
 		}
-		if settings.MaxCacheSizeInMebibytes < 10240 {
+		if settings.MaxCacheSizeInMebibytes < 10240*1024*1024 {
 			log.Println("You need a cache of over 10GB")
 			return false
 		}
@@ -619,7 +619,7 @@ func main() {
 		log.Println("server started")
 		for running {
 			time.Sleep(1 * time.Second)
-			for uint64(settings.MaxCacheSizeInMebibytes)*1024 < diskUsed {
+			for uint64(settings.MaxCacheSizeInMebibytes) < diskUsed {
 				evictCache()
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
