@@ -574,7 +574,7 @@ func main() {
 	running = true
 	//opening database
 	do := badger.DefaultOptions(exeDir + "/badger")
-	do.Truncate = true
+	//do.Truncate = true
 	do.ValueLogLoadingMode = options.FileIO
 
 	db, err = badger.Open(do)
