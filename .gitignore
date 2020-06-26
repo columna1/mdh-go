@@ -10,3 +10,5 @@ cert.key
 cert.crt
 __debug_bin
 settings.json
+main
+main.exe

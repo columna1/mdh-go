@@ -300,7 +300,7 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	http.ServeFile(w, r, getFilePath(words))
 	//w.WriteHeader(http.StatusOK)
 	log.Print("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
-	r.Close = true
+	//r.Close = true
 }
 
 func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
@@ -383,7 +383,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	}
 	log.Println("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 	updateTotalDiskUse(tb)
-	r.Close = true
+	//r.Close = true
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -414,6 +414,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	} else {
 		//error
 		log.Printf("failed to serve request " + r.URL.String())
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
@@ -535,6 +536,7 @@ func sendStop() bool {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	log.Println("response:")
