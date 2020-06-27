@@ -348,6 +348,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	dir := getFileDir(words)
 	fileerr := os.MkdirAll(dir, filePermissions)
 	var f *os.File
+	var filebuffWriter *bufio.Writer
 
 	if err != nil {
 		log.Println("Could not create directory for file")
@@ -359,9 +360,9 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 			log.Println("could not open file to write")
 			log.Println(fileerr)
 		}
+		filebuffWriter = bufio.NewWriterSize(f, 128000)
 	}
-	filebuffWriter := bufio.NewWriterSize(f, 128000)
-	httpbuffWriter := bufio.NewWriterSize(f, 128000)
+	httpbuffWriter := bufio.NewWriterSize(w, 128000)
 	buf := make([]byte, 1000000) //one megabyte
 	tb := 0
 	for {
@@ -377,7 +378,9 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 			//we got an actual error
 			log.Println("failed to get image")
 			log.Println(err)
+			httpbuffWriter.Flush()
 			if fileerr == nil {
+				filebuffWriter.Flush()
 				f.Close()
 				err = os.Remove(getFilePath(words))
 				handleNoFatal(err)
@@ -387,7 +390,9 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		} else if err2 != nil {
 			log.Println("failed to serve image")
 			log.Println(err)
+			httpbuffWriter.Flush()
 			if fileerr == nil {
+				filebuffWriter.Flush()
 				f.Close()
 				err = os.Remove(getFilePath(words))
 				handleNoFatal(err)
@@ -396,9 +401,11 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 			return
 		}
 	}
-	filebuffWriter.Flush()
+	if fileerr == nil {
+		filebuffWriter.Flush()
+		f.Close()
+	}
 	httpbuffWriter.Flush()
-	f.Close()
 	//w.WriteHeader(http.StatusOK)
 
 	log.Println("Got file from upstream in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
