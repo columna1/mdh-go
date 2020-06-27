@@ -666,7 +666,7 @@ func main() {
 		}
 		log.Println("stopping server..")
 		sendStop()
-		log.Println("Stop sent to server, waiting for requests to stop or timeout to expire (max " + strconv.Itoa(settings.GracefulShutdownWaitSeconds) + " seconds_")
+		log.Println("Stop sent to server, waiting for requests to stop or timeout to expire (max " + strconv.Itoa(settings.GracefulShutdownWaitSeconds) + " seconds)")
 		for int(time.Since(timeOfStop).Seconds()) < settings.GracefulShutdownWaitSeconds && int(time.Since(lastRequest).Seconds()) < 10 {
 			time.Sleep(1 * time.Second)
 			log.Println("waiting to shut down the server")
