@@ -434,7 +434,7 @@ func handleNotFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
-	log.Print("server error for: ", r.URL.String(), "err: ", err)
+	log.Print("server error for: ", r.URL.String(), " err: ", err)
 	w.WriteHeader(http.StatusInternalServerError)
 }
 
