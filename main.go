@@ -74,7 +74,12 @@ var reply serverReply
 var version = 13
 var exeDir string
 
-var filePermissions = os.ModePerm //permissive 0777
+const (
+	dirPermissions                      = 0777 // permissive for directory
+	filePermissions         os.FileMode = 0666 // permissive for files
+	sensitiveFilePermission os.FileMode = 0600 // only owner can read sensitive data
+)
+
 var cacheDir = "cache/"
 
 //var serverAPIAddress = "https://mangadex-test.net/"
@@ -349,7 +354,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("connection", "keep-alive")
 
 	dir := getFileDir(words)
-	fileerr := os.MkdirAll(dir, filePermissions)
+	fileerr := os.MkdirAll(dir, dirPermissions)
 	var f *os.File
 	var filebuffWriter *bufio.Writer
 
@@ -358,7 +363,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	} else {
 		fn := getFilePath(words)
 		// If file already exist do not open it (avoid writing it multiple times)
-		f, fileerr = os.OpenFile(fn, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0666)
+		f, fileerr = os.OpenFile(fn, os.O_CREATE|os.O_EXCL|os.O_RDWR, filePermissions)
 		if fileerr != nil {
 			log.Println("could not open file to write: ", fileerr)
 		} else {
@@ -535,7 +540,7 @@ func readSettingsFile() bool {
 		// path/to/whatever does *not* exist write default and exit
 		log.Println("No settings file found, writing out an example for you to modify")
 		file, _ := json.MarshalIndent(settings, "", "	")
-		err := ioutil.WriteFile("settings.json", file, filePermissions)
+		err := ioutil.WriteFile("settings.json", file, sensitiveFilePermission)
 		if err != nil {
 			log.Println("Could not write settings.json")
 		}
