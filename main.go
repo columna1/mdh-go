@@ -551,7 +551,10 @@ func sendPing() bool {
 		NetworkSpeed: settings.MaxKilobitsPerSecond,
 		BuildVersion: version,
 	}
+	serverDataMinusSecret := serverData
+	serverDataMinusSecret.Secret = "****"
 	formData, err := json.Marshal(serverData)
+	formDataMinusSecret, _ := json.Marshal(serverDataMinusSecret)
 	if err != nil {
 		log.Fatalln("Could not serialize json for ping")
 		return false
@@ -563,7 +566,7 @@ func sendPing() bool {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "MangaDex@Home Build.1.1.0")
-	log.Println("sending request", string(formData))
+	log.Println("sending request", string(formDataMinusSecret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Fatalln(err)
