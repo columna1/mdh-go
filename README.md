@@ -1,16 +1,16 @@
 # Mangadex@Home client written in go!
-Unofficial client for Mangadex@home written by columna1 with help from @jeremiejig
+Unofficial client for Mangadex@home written by columna1 with help from [jeremiejig](https://github.com/jeremiejig)
 ## Support
-This client was written mostly as an educational exercise as well as for fun. I will provide little official support. Though feel free to file issues if you run across them. However if you see me around I'll answer questions.  
+This client was written mostly as an educational exercise as well as for fun. I will provide little to no official support. Though feel free to file issues if you run across them. However, if you see me around I'll answer questions.  
   
-**This client and the official client are NOT compatible. DO NOT attempt to use your cache from the official client, this will just waste disk space!**  
+**File structure for this client and the official client are NOT compatible. DO NOT attempt to use your cache from the official client, this will just waste disk space!**  
   
 While this client has been used in production, on the official production servers. I cannot guarantee that it works correctly and is bug free.  
 **USE AT YOUR OWN RISK**  
 ## Configuration
 While this client uses a configuration similar to the official client, it is not the same. Because of this you should take care if transferring settings from the official client to this one.
 
-Example Config
+Example Config:
 
 ```json
     {
@@ -26,7 +26,7 @@ Example Config
 ```
 Upon launching without a config the client will write out a blank settings file for you to fill out.
 
-Here is a rough explanation of the config values
+Here is a rough explanation of the config values:
 
 ### `ClientSecret`
 You get this from your clients page on mangadex.org this should be 52 chars long
@@ -47,7 +47,7 @@ Used to change the main server endpoint. This is used for debugging purposes, le
 
 ## Architecture
 This client uses [badger](https://github.com/dgraph-io/badger) to store metadata about each file. The metadata stored includes the chapter hash + filename, The content-type string sent to the reader, file size, and time last accessed.  
-The total disk space used is also stored in a db entry, disk space used is never directly measured from disk.  
+The total disk space used is also stored in a db entry. Disk space used is never directly measured from disk.  
   
 When the client receives a request it looks it up in the cache folder. The cache folder is structured like so:  
 We use the chapter hash provided in the request to store all files in a chapter in a single directory. For Example the image   
@@ -55,9 +55,9 @@ We use the chapter hash provided in the request to store all files in a chapter 
 is stored with a path like so:
 `cache/data/81/72/a4/8172a46adc798f4f4ace6663322a383e/B18.png`  
   
-**This client stores images by chapter ID in an un-encrypted fashion, If this is a concern for you Don't use this client!**
+**This client stores images by chapter ID in an un-encrypted fashion. If this is a concern for you Don't use this client!**
 
 ## Thanks to contributors!
 If you have a feature you want implemented or have an idea to make this client better please feel free to submit a PR.  
 Special thanks to the following:  
-@jeremiejig for helping solve bugs and providing style improvements! Thanks a bunch!
+[jeremiejig](https://github.com/jeremiejig) for helping solve bugs and providing style improvements! Thanks a bunch!
