@@ -356,43 +356,40 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		log.Println("Could not create directory for file: ", err)
 	} else {
 		fn := getFilePath(words)
-		f, fileerr = os.Create(fn)
+		// If file already exist do not open it (avoid writing it multiple times)
+		f, fileerr = os.OpenFile(fn, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0666)
 		if fileerr != nil {
 			log.Println("could not open file to write: ", fileerr)
+		} else {
+			filebuffWriter = bufio.NewWriterSize(f, 128000)
 		}
-		filebuffWriter = bufio.NewWriterSize(f, 128000)
 	}
 	httpbuffWriter := bufio.NewWriterSize(w, 128000)
+	var teeUpstreamToClient = io.TeeReader(resp.Body, httpbuffWriter)
 	buf := make([]byte, 1000000) //one megabyte
 	tb := 0
 	for {
-		n, err := resp.Body.Read(buf)
-		_, err2 := httpbuffWriter.Write(buf[:n])
+		n, err := teeUpstreamToClient.Read(buf)
 		if fileerr == nil {
-			filebuffWriter.Write(buf[:n])
+			_, fileerr = filebuffWriter.Write(buf[:n])
+			if fileerr != nil {
+				filebuffWriter.Flush()
+				f.Close()
+				err = os.Remove(getFilePath(words))
+				handleNoFatal(err)
+				filebuffWriter = nil
+			}
 		}
 		tb += n
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			//we got an actual error
-			log.Println("failed to get image: ", err)
+			log.Println("an error occurred when transfering image ", r.URL.Path)
 			//We can try to send an error 500, if w has already been written to by httpbuffWriter nothing will happen
 			handleServerError(w, r, err)
 			httpbuffWriter.Flush()
-			if fileerr == nil {
-				filebuffWriter.Flush()
-				f.Close()
-				err = os.Remove(getFilePath(words))
-				handleNoFatal(err)
-			}
-			return
-		} else if err2 != nil {
-			log.Println("failed to serve image: ", err2)
-			//We can try to send an error 500, if w has already been written to by httpbuffWriter nothing will happen
-			handleServerError(w, r, err2)
-			httpbuffWriter.Flush()
-			if fileerr == nil {
+			if filebuffWriter != nil {
 				filebuffWriter.Flush()
 				f.Close()
 				err = os.Remove(getFilePath(words))
@@ -437,7 +434,7 @@ func handleNotFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
-	log.Print("server error for: ", r.URL.String(), "err: ", err)
+	log.Print("server error for: ", r.URL.String(), " err: ", err)
 	w.WriteHeader(http.StatusInternalServerError)
 }
 
