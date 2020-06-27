@@ -62,4 +62,4 @@ Old data is evicted based on an LRU approximation. This isn't perfect but should
 ## Thanks to contributors!
 If you have a feature you want implemented or have an idea to make this client better please feel free to submit a PR.  
 Special thanks to the following:  
-[jeremiejig](https://github.com/jeremiejig) for helping solve bugs and providing style improvements! Thanks a bunch!
+[jeremiejig](https://github.com/jeremiejig) for helping solve bugs, providing style and other general improvements! Thanks a bunch!
