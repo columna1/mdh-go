@@ -385,7 +385,6 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 				err = os.Remove(getFilePath(words))
 				handleNoFatal(err)
 			}
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		} else if err2 != nil {
 			log.Println("failed to serve image")
@@ -397,7 +396,6 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 				err = os.Remove(getFilePath(words))
 				handleNoFatal(err)
 			}
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	}
@@ -452,11 +450,11 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	} else if r.URL.String() == "/stop" {
 
 		//for debug use
-		/*
+		if serverAPIAddress == "https://mangadex-test.net/" {
 			running = false
 			w.Write([]byte("Shutting server down!"))
 			timeOfStop = time.Now()
-		*/
+		}
 
 	} else {
 		//error
