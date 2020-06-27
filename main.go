@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -481,14 +482,19 @@ func startHTTPServer(wg *sync.WaitGroup) *http.Server {
 		addr += ":" + strconv.Itoa(settings.ClientPort)
 	}
 	srv := &http.Server{Addr: addr}
-	log.Println("bind to " + addr + " externalPort: " + strconv.Itoa(settings.ClientPort))
+	cert, err := tls.X509KeyPair([]byte(reply.TLS.Certificate), []byte(reply.TLS.PrivateKey))
+	if err != nil {
+		log.Fatalln("failed to create TLS certificate ", err)
+	}
+	srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+	log.Println("bound to " + addr + " externalPort: " + strconv.Itoa(settings.ClientPort))
 	http.HandleFunc("/", handleRequest)
 
 	go func() {
 		defer wg.Done() // let main know we are done cleaning up
 
 		// always returns error. ErrServerClosed on graceful close
-		if err := srv.ListenAndServeTLS(exeDir+"/cert.crt", exeDir+"/cert.key"); err != http.ErrServerClosed {
+		if err := srv.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
 			// unexpected error. port in use?
 			log.Fatalf("ListenAndServe(): %v", err)
 		}
@@ -553,12 +559,12 @@ func sendPing() bool {
 	formData, err := json.Marshal(serverData)
 	formDataMinusSecret, _ := json.Marshal(serverDataMinusSecret)
 	if err != nil {
-		log.Fatalln("Could not serialize json for ping")
+		log.Println("Could not serialize json for ping")
 		return false
 	}
 	req, err := http.NewRequest("POST", serverAPIAddress+"ping", bytes.NewBuffer(formData))
 	if err != nil {
-		log.Fatalln(err)
+		log.Println("Error trying to create ping", err)
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -566,14 +572,14 @@ func sendPing() bool {
 	log.Println("sending request", string(formDataMinusSecret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println("Error trying to receive ping", err)
 		return false
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err := json.Unmarshal(body, &reply); err != nil {
-		log.Fatalln(err)
+		log.Println("couldn't decode json for ping:", err)
 		return false
 	}
 
@@ -587,9 +593,6 @@ func sendPing() bool {
 		return false
 	}
 
-	tls := reply.TLS
-	ioutil.WriteFile(exeDir+"/cert.key", []byte(tls.PrivateKey), filePermissions)
-	ioutil.WriteFile(exeDir+"/cert.crt", []byte(tls.Certificate), filePermissions)
 	lastPing = time.Now()
 	return true
 }
@@ -648,6 +651,7 @@ func main() {
 			log.Println("ping succeeded")
 			log.Println("URL is " + reply.URL)
 		} else {
+			log.Println("ping failed")
 			running = false
 		}
 	}
