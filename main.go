@@ -256,7 +256,11 @@ func updateTotalDiskUse(bytes int) {
 
 func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	//cache hit
-	//TODO: browser cache
+	if r.Header.Get("If-Modified-Since") != "" {
+		log.Println("Browser cached, sending 304")
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	st := time.Now()
 	contentType := ""
 	lm := ""
@@ -321,7 +325,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	log.Println("Cache miss for " + id)
 	resp, err := http.Get(reply.ImageServer + "/" + words[0] + "/" + words[1] + "/" + words[2])
 	if err != nil {
-		//error occured on the connection to upstream
+		//error occurred on the connection to upstream
 		log.Println("failed to get image from upstream")
 		handleServerError(w, r, err)
 		return
