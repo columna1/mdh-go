@@ -55,6 +55,8 @@ We use the chapter hash provided in the request to store all files in a chapter 
 is stored with a path like so:
 `cache/data/81/72/a4/8172a46adc798f4f4ace6663322a383e/B18.png`  
   
+Old data is evicted based on an LRU approximation. This isn't perfect but should work well enough. This decision was made to reduce file space used and make cache eviction faster and less resource intensive.
+  
 **This client stores images by chapter ID in an un-encrypted fashion. If this is a concern for you Don't use this client!**
 
 ## Thanks to contributors!
