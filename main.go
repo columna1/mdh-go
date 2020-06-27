@@ -244,8 +244,7 @@ func updateTotalDiskUse(bytes int) {
 		return err
 	})
 	if err != nil {
-		log.Println("err")
-		log.Println(err)
+		log.Println("err", err)
 	}
 }
 
@@ -285,8 +284,7 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 		return err
 	})
 	if err != nil {
-		log.Println("err")
-		log.Println(err)
+		log.Println("badger err: ", err)
 	}
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
@@ -317,12 +315,17 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	log.Println("Cache miss for " + id)
 	resp, err := http.Get(reply.ImageServer + "/" + words[0] + "/" + words[1] + "/" + words[2])
 	if err != nil {
-		//fail and send a 404 response back to the client
+		//error occured on the connection to upstream
 		log.Println("failed to get image from upstream")
-		w.WriteHeader(http.StatusInternalServerError)
+		handleServerError(w, r, err)
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		//fail and send a 404 response back to the client
+		handleNotFound(w, r)
+		return
+	}
 	ct := resp.Header.Get("Content-Type")
 	cl := resp.Header.Get("Content-Length")
 	lmt := resp.Header.Get("Last-Modified")
@@ -340,7 +343,6 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("X-Time-Taken", strconv.Itoa(int(time.Since(st).Milliseconds())))
 	w.Header().Set("X-Cache", "MISS")
 	w.Header().Set("Cache-Control", "public, max-age=1209600")
-	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
 	w.Header().Set("X-URI", "/"+id)
 	w.Header().Set("Content-Length", cl)
 	w.Header().Set("connection", "keep-alive")
@@ -351,14 +353,12 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	var filebuffWriter *bufio.Writer
 
 	if err != nil {
-		log.Println("Could not create directory for file")
-		log.Println(err)
+		log.Println("Could not create directory for file: ", err)
 	} else {
 		fn := getFilePath(words)
 		f, fileerr = os.Create(fn)
 		if fileerr != nil {
-			log.Println("could not open file to write")
-			log.Println(fileerr)
+			log.Println("could not open file to write: ", fileerr)
 		}
 		filebuffWriter = bufio.NewWriterSize(f, 128000)
 	}
@@ -376,8 +376,9 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 			break
 		} else if err != nil {
 			//we got an actual error
-			log.Println("failed to get image")
-			log.Println(err)
+			log.Println("failed to get image: ", err)
+			//We can try to send an error 500, if w has already been written to by httpbuffWriter nothing will happen
+			handleServerError(w, r, err)
 			httpbuffWriter.Flush()
 			if fileerr == nil {
 				filebuffWriter.Flush()
@@ -387,8 +388,9 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 			}
 			return
 		} else if err2 != nil {
-			log.Println("failed to serve image")
-			log.Println(err)
+			log.Println("failed to serve image: ", err2)
+			//We can try to send an error 500, if w has already been written to by httpbuffWriter nothing will happen
+			handleServerError(w, r, err2)
 			httpbuffWriter.Flush()
 			if fileerr == nil {
 				filebuffWriter.Flush()
@@ -422,15 +424,27 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		return err
 	})
 	if err != nil {
-		log.Println(err)
+		log.Println("badger update err: ", err)
 	}
 	log.Println("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 	updateTotalDiskUse(tb)
 	//r.Close = true
 }
 
+func handleNotFound(w http.ResponseWriter, r *http.Request) {
+	log.Print("request not found: " + r.URL.String())
+	w.WriteHeader(http.StatusNotFound)
+}
+
+func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
+	log.Print("server error for: ", r.URL.String(), "err: ", err)
+	w.WriteHeader(http.StatusInternalServerError)
+}
+
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	lastRequest = time.Now()
+	// Common header
+	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
 	words := strings.Split(r.URL.Path, "/")
 	indOffset := 0
 	for i := 0; i < len(words); i++ {
@@ -454,12 +468,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			running = false
 			w.Write([]byte("Shutting server down!"))
 			timeOfStop = time.Now()
+		} else {
+			handleNotFound(w, r)
 		}
 
 	} else {
 		//error
-		log.Printf("failed to serve request " + r.URL.Path)
-		w.WriteHeader(http.StatusNotFound)
+		handleNotFound(w, r)
 	}
 }
 
@@ -536,7 +551,10 @@ func sendPing() bool {
 		NetworkSpeed: settings.MaxKilobitsPerSecond,
 		BuildVersion: version,
 	}
+	serverDataMinusSecret := serverData
+	serverDataMinusSecret.Secret = "****"
 	formData, err := json.Marshal(serverData)
+	formDataMinusSecret, _ := json.Marshal(serverDataMinusSecret)
 	if err != nil {
 		log.Fatalln("Could not serialize json for ping")
 		return false
@@ -548,7 +566,7 @@ func sendPing() bool {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "MangaDex@Home Build.1.1.0")
-	log.Println("sending request", string(formData))
+	log.Println("sending request", string(formDataMinusSecret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Fatalln(err)
@@ -666,7 +684,7 @@ func main() {
 		}
 		log.Println("stopping server..")
 		sendStop()
-		log.Println("Stop sent to server, waiting for requests to stop or timeout to expire (max " + strconv.Itoa(settings.GracefulShutdownWaitSeconds) + " seconds_")
+		log.Println("Stop sent to server, waiting for requests to stop or timeout to expire (max " + strconv.Itoa(settings.GracefulShutdownWaitSeconds) + " seconds)")
 		for int(time.Since(timeOfStop).Seconds()) < settings.GracefulShutdownWaitSeconds && int(time.Since(lastRequest).Seconds()) < 10 {
 			time.Sleep(1 * time.Second)
 			log.Println("waiting to shut down the server")
