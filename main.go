@@ -461,7 +461,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if (words[indOffset] == "data" || words[indOffset] == "data-saver") && len(words) > indOffset+2 {
-		if checkForFile(words[indOffset : indOffset+3]) {
+		// Sane URL check
+		if len(words[indOffset+1]) < 6 {
+			handleNotFound(w, r)
+		} else if checkForFile(words[indOffset : indOffset+3]) {
 			handleCacheHit(w, r, words[indOffset:indOffset+3])
 		} else {
 			//cache miss
