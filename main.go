@@ -116,14 +116,9 @@ func checkForFile(words []string) (exists bool) {
 	return
 }
 
-func handle(err error) {
+func logNoFatal(err error) {
 	if err != nil {
-		log.Fatalln(err)
-	}
-}
-func handleNoFatal(err error) {
-	if err != nil {
-		log.Println(err)
+		log.Println("Error: ", err)
 	}
 }
 
@@ -186,13 +181,10 @@ func evictCache() { //just blindly removes something from cache
 				}
 				return nil
 			})
-			handleNoFatal(err)
-
 			return err
 		})
 		if err != nil {
-			log.Println("err")
-			log.Println(err)
+			log.Println("error badger view: ", err)
 		}
 	}
 	//delete lowest key and update diskuse
@@ -201,13 +193,12 @@ func evictCache() { //just blindly removes something from cache
 		log.Println("deleted " + string(lowestKey))
 		log.Println("removing " + getFilePathFromBytes(lowestKey))
 		err := os.Remove(getFilePathFromBytes(lowestKey))
-		handleNoFatal(err)
+		logNoFatal(err)
 		err = txn.Delete(lowestKey)
 		return err
 	})
 	if err != nil {
-		log.Println("err")
-		log.Println(err)
+		log.Println("error badger: ", err)
 	} else {
 		updateTotalDiskUse(0 - int(lowestNumSize))
 	}
@@ -224,7 +215,7 @@ func updateTotalDiskUse(bytes int) {
 			binary.LittleEndian.PutUint64(v, uint64(bytes))
 			diskUsed = uint64(bytes)
 			err := txn.Set([]byte("totalDiskUsed"), v)
-			handleNoFatal(err)
+			logNoFatal(err)
 			return nil
 		} else if err != nil {
 			return err
@@ -242,22 +233,22 @@ func updateTotalDiskUse(bytes int) {
 			v := make([]byte, 8)
 			binary.LittleEndian.PutUint64(v, in)
 			err := txn.Set([]byte("totalDiskUsed"), v)
-			handleNoFatal(err)
+			logNoFatal(err)
 			return nil
 		})
-		handleNoFatal(err)
+		logNoFatal(err)
 
 		return err
 	})
 	if err != nil {
-		log.Println("err", err)
+		log.Println("error disk usage badger: ", err)
 	}
 }
 
 func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	//cache hit
 	if r.Header.Get("If-Modified-Since") != "" {
-		log.Println("Browser cached, sending 304")
+		log.Println("Browser cached for " + r.URL.Path + " sending 304")
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -268,7 +259,7 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	log.Println("Cache hit for " + id)
 	err := db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(id))
-		handleNoFatal(err)
+		logNoFatal(err)
 		if err != nil {
 			return err
 		}
@@ -286,15 +277,15 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 
 			json, _ := json.Marshal(entry)
 			err := txn.Set([]byte(id), json)
-			handleNoFatal(err)
+			logNoFatal(err)
 			return nil
 		})
-		handleNoFatal(err)
+		logNoFatal(err)
 
 		return err
 	})
 	if err != nil {
-		log.Println("badger err: ", err)
+		log.Println("badger error: ", err)
 	}
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
@@ -308,7 +299,6 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("Timing-Allow-Origin", "https://mangadex.org")
 	w.Header().Set("X-Time-Taken", strconv.Itoa(int(time.Since(st).Milliseconds())))
 	w.Header().Set("Cache-Control", "public, max-age=1209600")
-	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
 	w.Header().Set("X-URI", "/"+id)
 	w.Header().Set("connection", "keep-alive")
 	w.Header().Set("X-Cache", "HIT")
@@ -326,7 +316,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	resp, err := http.Get(reply.ImageServer + "/" + words[0] + "/" + words[1] + "/" + words[2])
 	if err != nil {
 		//error occurred on the connection to upstream
-		log.Println("failed to get image from upstream")
+		log.Println("Error: failed to get image from upstream")
 		handleServerError(w, r, err)
 		return
 	}
@@ -363,13 +353,13 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	var filebuffWriter *bufio.Writer
 
 	if err != nil {
-		log.Println("Could not create directory for file: ", err)
+		log.Println("Error: Could not create directory for file: ", err)
 	} else {
 		fn := getFilePath(words)
 		// If file already exist do not open it (avoid writing it multiple times)
 		f, fileerr = os.OpenFile(fn, os.O_CREATE|os.O_EXCL|os.O_RDWR, filePermissions)
 		if fileerr != nil {
-			log.Println("could not open file to write: ", fileerr)
+			log.Println("Error: Could not open file to write: ", fileerr)
 		} else {
 			filebuffWriter = bufio.NewWriterSize(f, 128000)
 		}
@@ -386,7 +376,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 				filebuffWriter.Flush()
 				f.Close()
 				err = os.Remove(getFilePath(words))
-				handleNoFatal(err)
+				logNoFatal(err)
 				filebuffWriter = nil
 			}
 		}
@@ -403,7 +393,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 				filebuffWriter.Flush()
 				f.Close()
 				err = os.Remove(getFilePath(words))
-				handleNoFatal(err)
+				logNoFatal(err)
 			}
 			return
 		}
@@ -431,7 +421,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		return err
 	})
 	if err != nil {
-		log.Println("badger update err: ", err)
+		log.Println("badger update error: ", err)
 	}
 	log.Println("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
 	updateTotalDiskUse(tb)
@@ -451,7 +441,7 @@ func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	lastRequest = time.Now()
 	// Common header
-	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
+	w.Header().Set("Server", "Mangadex@Home Node github.com/columna1/mdh-go (13)")
 	words := strings.Split(r.URL.Path, "/")
 	indOffset := 0
 	for i := 0; i < len(words); i++ {
@@ -461,7 +451,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if (words[indOffset] == "data" || words[indOffset] == "data-saver") && len(words) > indOffset+2 {
-		if checkForFile(words[indOffset : indOffset+3]) {
+		// Sane URL check
+		if len(words[indOffset+1]) < 6 {
+			handleNotFound(w, r)
+		} else if checkForFile(words[indOffset : indOffset+3]) {
 			handleCacheHit(w, r, words[indOffset:indOffset+3])
 		} else {
 			//cache miss
@@ -524,8 +517,7 @@ func readSettingsFile() bool {
 		log.Println("Opened settings file")
 		f, err := ioutil.ReadAll(jsonFile)
 		if err := json.Unmarshal(f, &settings); err != nil {
-			log.Println("Json decoding failed")
-			log.Println(err)
+			log.Println("Json decoding failed: ", err)
 			return false
 		}
 		settings.MaxCacheSizeInMebibytes = settings.MaxCacheSizeInMebibytes * 1024 * 1024
@@ -573,7 +565,7 @@ func sendPing() bool {
 	}
 	req, err := http.NewRequest("POST", serverAPIAddress+"ping", bytes.NewBuffer(formData))
 	if err != nil {
-		log.Println("Error trying to create ping", err)
+		log.Println("Error trying to create ping ", err)
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -581,14 +573,14 @@ func sendPing() bool {
 	log.Println("sending request", string(formDataMinusSecret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Println("Error trying to receive ping", err)
+		log.Println("Error trying to receive ping ", err)
 		return false
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err := json.Unmarshal(body, &reply); err != nil {
-		log.Println("couldn't decode json for ping:", err)
+		log.Println("couldn't decode json for ping: ", err)
 		return false
 	}
 
@@ -597,8 +589,8 @@ func sendPing() bool {
 		return false
 	}
 	if len(reply.ImageServer) < 2 {
-		log.Println("Failed to get image server information, Something went wrong. Server's reply:")
-		log.Println(string(body))
+		log.Println("Failed to get image server information, Something went wrong. Server's reply:\n",
+			string(body))
 		return false
 	}
 
@@ -615,8 +607,7 @@ func sendStop() bool {
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
-	log.Println("response:")
-	log.Println(string(body))
+	log.Println("response:\n", string(body))
 	return true
 }
 
@@ -657,8 +648,8 @@ func main() {
 	if running {
 		//connect to server, send ping
 		if sendPing() {
-			log.Println("ping succeeded")
-			log.Println("URL is " + reply.URL)
+			log.Println("ping succeeded\n",
+				"URL is "+reply.URL)
 		} else {
 			log.Println("ping failed")
 			running = false
