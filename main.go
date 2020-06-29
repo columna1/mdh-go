@@ -699,7 +699,6 @@ func main() {
 			oscall := <-c
 			log.Printf("system call:%+v", oscall)
 			timeOfStop = time.Now()
-			lastRequest = time.Now()
 			//call shutdown
 			running = false
 			//cancel()
