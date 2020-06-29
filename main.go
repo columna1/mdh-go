@@ -397,12 +397,12 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 		if fileerr != nil {
 			log.Println("Error: Could not open file to write: ", fileerr)
 		} else {
-			filebuffWriter = bufio.NewWriterSize(f, 128000)
+			filebuffWriter = bufio.NewWriterSize(f, 64000)
 		}
 	}
-	httpbuffWriter := bufio.NewWriterSize(w, 128000)
+	httpbuffWriter := bufio.NewWriterSize(w, 64000)
 	var teeUpstreamToClient = io.TeeReader(resp.Body, httpbuffWriter)
-	buf := make([]byte, 1000000) //one megabyte
+	buf := make([]byte, 64000) //one megabyte
 	tb := 0
 	for {
 		n, err := teeUpstreamToClient.Read(buf)
