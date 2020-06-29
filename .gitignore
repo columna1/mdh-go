@@ -10,6 +10,7 @@ cert.key
 cert.crt
 __debug_bin
 settings.json
+mdh-go
 main
 *.exe
 *.xml
