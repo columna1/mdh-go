@@ -308,7 +308,6 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	w.Header().Set("Timing-Allow-Origin", "https://mangadex.org")
 	w.Header().Set("X-Time-Taken", strconv.Itoa(int(time.Since(st).Milliseconds())))
 	w.Header().Set("Cache-Control", "public, max-age=1209600")
-	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
 	w.Header().Set("X-URI", "/"+id)
 	w.Header().Set("connection", "keep-alive")
 	w.Header().Set("X-Cache", "HIT")
@@ -451,7 +450,7 @@ func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	lastRequest = time.Now()
 	// Common header
-	w.Header().Set("Server", "Mangadex@Home Node 1.0.0 (13)")
+	w.Header().Set("Server", "Mangadex@Home Node github.com/columna1/mdh-go (13)")
 	words := strings.Split(r.URL.Path, "/")
 	indOffset := 0
 	for i := 0; i < len(words); i++ {
