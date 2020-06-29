@@ -1,4 +1,4 @@
-module github.com/columna1/mdh-client
+module github.com/columna1/mdh-go
 
 go 1.14
 
