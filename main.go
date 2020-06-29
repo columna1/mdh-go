@@ -285,7 +285,43 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 		return err
 	})
 	if err != nil {
-		log.Println("badger error: ", err)
+		log.Println("badger err: ", err)
+		if err.Error() == "Key not found" {
+			log.Println("trying to add db key")
+			//Key does not exist in database, attempt to rebuild
+			ct := ""
+			if strings.ContainsAny(id, ".png") {
+				ct = "image/png"
+			} else if strings.ContainsAny(id, ".jpg") {
+				ct = "image/jpg"
+			}
+			st, err := os.Stat(getFilePath(words))
+			tn := ""
+			var tb int64
+			if err != nil {
+				logNoFatal(err)
+				tn = time.Now().Format(time.RFC1123)
+			} else {
+				tn = st.ModTime().Format(time.RFC1123)
+				tb = st.Size()
+				updateTotalDiskUse(int(tb))
+			}
+
+			err = db.Update(func(txn *badger.Txn) error {
+				t := keyValue{
+					ContentType:  ct,
+					LastAccessed: time.Now().Unix(),
+					LastModified: tn,
+					FileSize:     tb, //this can end up as 0, hopefully this never happens (not that it really matters)
+				}
+				json, _ := json.Marshal(t)
+				err := txn.Set([]byte(id), json)
+				return err
+			})
+			if err != nil {
+				log.Println("badger update err while rebuilding: ", err)
+			}
+		}
 	}
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
