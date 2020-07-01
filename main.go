@@ -29,6 +29,7 @@ import (
 )
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to a `file`")
+var logFile = flag.String("logFile", "", "`File` to write logs to")
 
 type configuration struct {
 	ClientSecret                string
@@ -116,9 +117,13 @@ func checkForFile(words []string) (exists bool) {
 	return
 }
 
+func textColor(str string, color uint8) string {
+	return string(0x1b) + "[" + string(color) + "m" + str + string(0x1b) + "[37m"
+}
+
 func logNoFatal(err error) {
 	if err != nil {
-		log.Println("Error: ", err)
+		log.Println(textColor("Error: "+err.Error(), 31))
 	}
 }
 
@@ -294,6 +299,8 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 				ct = "image/png"
 			} else if strings.ContainsAny(id, ".jpg") {
 				ct = "image/jpg"
+			} else if strings.ContainsAny(id, ".gif") {
+				ct = "image/gif"
 			}
 			st, err := os.Stat(getFilePath(words))
 			tn := ""
@@ -359,6 +366,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		//fail and send a 404 response back to the client
+		log.Println("upstream is not ok")
 		handleNotFound(w, r)
 		return
 	}
@@ -465,12 +473,12 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 }
 
 func handleNotFound(w http.ResponseWriter, r *http.Request) {
-	log.Print("request not found: " + r.URL.String())
+	log.Print(textColor("request not found: "+r.URL.String(), 33)) //yellow color
 	w.WriteHeader(http.StatusNotFound)
 }
 
 func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
-	log.Print("server error for: ", r.URL.String(), " err: ", err)
+	log.Print(textColor("server error for: "+r.URL.String()+" err: "+err.Error(), 31))
 	w.WriteHeader(http.StatusInternalServerError)
 }
 
@@ -489,6 +497,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if (words[indOffset] == "data" || words[indOffset] == "data-saver") && len(words) > indOffset+2 {
 		// Sane URL check
 		if len(words[indOffset+1]) < 6 {
+			log.Println(words, " ", "chapter length is too small")
 			handleNotFound(w, r)
 		} else if checkForFile(words[indOffset : indOffset+3]) {
 			handleCacheHit(w, r, words[indOffset:indOffset+3])
@@ -510,6 +519,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 		//error
+		log.Println(words, indOffset, len(words))
 		handleNotFound(w, r)
 	}
 }
@@ -520,6 +530,9 @@ func startHTTPServer(wg *sync.WaitGroup) *http.Server {
 		addr += ":" + strconv.Itoa(settings.ClientPort)
 	}
 	srv := &http.Server{Addr: addr}
+	srv.IdleTimeout = 5 * time.Minute
+	srv.ReadTimeout = 30 * time.Second
+	srv.WriteTimeout = 5 * time.Minute
 	cert, err := tls.X509KeyPair([]byte(reply.TLS.Certificate), []byte(reply.TLS.PrivateKey))
 	if err != nil {
 		log.Fatalln("failed to create TLS certificate ", err)
@@ -584,6 +597,18 @@ func readSettingsFile() bool {
 }
 
 func sendPing() bool {
+	flag.Parse()
+	if *logFile != "" {
+		f, err := os.OpenFile("text.log",
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer f.Close()
+		mw := io.MultiWriter(os.Stdout, f)
+		log.SetOutput(mw)
+	}
+
 	serverData := pingData{
 		Secret:       settings.ClientSecret,
 		Port:         settings.ClientPort,
@@ -614,9 +639,11 @@ func sendPing() bool {
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
+	ree := reply
 
 	if err := json.Unmarshal(body, &reply); err != nil {
-		log.Println("couldn't decode json for ping: ", err)
+		log.Println("couldn't decode json for ping: ", err, string(body))
+		reply = ree
 		return false
 	}
 
@@ -629,6 +656,11 @@ func sendPing() bool {
 			string(body))
 		return false
 	}
+	s := "false"
+	if reply.Compromised {
+		s = "true"
+	}
+	log.Println(textColor("ping received: \n"+"compromised: "+s+" url: "+reply.URL+" image server: "+reply.ImageServer+" latestBuild: "+strconv.Itoa(reply.LatestBuild), 32))
 
 	lastPing = time.Now()
 	return true
@@ -721,7 +753,7 @@ func main() {
 		log.Println("stopping server..")
 		sendStop()
 		log.Println("Stop sent to server, waiting for requests to stop or timeout to expire (max " + strconv.Itoa(settings.GracefulShutdownWaitSeconds) + " seconds)")
-		for int(time.Since(timeOfStop).Seconds()) < settings.GracefulShutdownWaitSeconds && int(time.Since(lastRequest).Seconds()) < 10 {
+		for int(time.Since(timeOfStop).Seconds()) < settings.GracefulShutdownWaitSeconds && int(time.Since(lastRequest).Seconds()) < 15 {
 			time.Sleep(1 * time.Second)
 			log.Println("waiting to shut down the server")
 		}
