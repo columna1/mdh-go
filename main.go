@@ -118,7 +118,7 @@ func checkForFile(words []string) (exists bool) {
 }
 
 func textColor(str string, color uint8) string {
-	return string(0x1b) + "[" + string(color) + "m" + str + string(0x1b) + "[37m"
+	return string(0x1b) + "[" + strconv.Itoa(int(color)) + "m" + str + string(0x1b) + "[37m"
 }
 
 func logNoFatal(err error) {
@@ -597,18 +597,6 @@ func readSettingsFile() bool {
 }
 
 func sendPing() bool {
-	flag.Parse()
-	if *logFile != "" {
-		f, err := os.OpenFile("text.log",
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Println(err)
-		}
-		defer f.Close()
-		mw := io.MultiWriter(os.Stdout, f)
-		log.SetOutput(mw)
-	}
-
 	serverData := pingData{
 		Secret:       settings.ClientSecret,
 		Port:         settings.ClientPort,
@@ -691,6 +679,17 @@ func main() {
 			log.Fatal("could not start CPU profile: ", err)
 		}
 		defer pprof.StopCPUProfile()
+	}
+	flag.Parse()
+	if *logFile != "" {
+		f, err := os.OpenFile("text.log",
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer f.Close()
+		mw := io.MultiWriter(os.Stdout, f)
+		log.SetOutput(mw)
 	}
 
 	exePath, err := os.Executable()
