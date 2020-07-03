@@ -93,6 +93,7 @@ var diskUsed uint64
 var lastRequest time.Time
 var timeOfStop time.Time
 var lastPing time.Time
+var settingModTime time.Time
 
 func getFilePath(words []string) string {
 	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
@@ -261,7 +262,7 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	contentType := ""
 	lm := ""
 	id := words[0] + "/" + words[1] + "/" + words[2]
-	log.Println("Cache hit for " + id)
+	log.Println(textColor("Cache hit for "+id, 36))
 	err := db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(id))
 		logNoFatal(err)
@@ -348,14 +349,14 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 
 	http.ServeFile(w, r, getFilePath(words))
 	//w.WriteHeader(http.StatusOK)
-	log.Print("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
+	log.Print(textColor("Done serving "+id+" in "+strconv.Itoa(int(time.Since(st).Milliseconds()))+"ms", 36))
 	//r.Close = true
 }
 
 func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	st := time.Now()
 	id := words[0] + "/" + words[1] + "/" + words[2]
-	log.Println("Cache miss for " + id)
+	log.Println(textColor("Cache miss for "+id, 35))
 	resp, err := http.Get(reply.ImageServer + "/" + words[0] + "/" + words[1] + "/" + words[2])
 	if err != nil {
 		//error occurred on the connection to upstream
@@ -429,7 +430,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 			break
 		} else if err != nil {
 			//we got an actual error
-			log.Println("an error occurred when transfering image ", r.URL.Path)
+			log.Println("an error occurred when transfering image ", id)
 			//We can try to send an error 500, if w has already been written to by httpbuffWriter nothing will happen
 			handleServerError(w, r, err)
 			httpbuffWriter.Flush()
@@ -467,7 +468,7 @@ func handleCacheMiss(w http.ResponseWriter, r *http.Request, words []string) {
 	if err != nil {
 		log.Println("badger update error: ", err)
 	}
-	log.Println("Done serving " + id + " in " + strconv.Itoa(int(time.Since(st).Milliseconds())) + "ms")
+	log.Println(textColor("Done serving "+id+" in "+strconv.Itoa(int(time.Since(st).Milliseconds()))+"ms", 35))
 	updateTotalDiskUse(tb)
 	//r.Close = true
 }
@@ -557,7 +558,8 @@ func startHTTPServer(wg *sync.WaitGroup) *http.Server {
 
 func readSettingsFile() bool {
 	//check if settings file exists
-	if _, err := os.Stat(exeDir + "/settings.json"); err == nil {
+	if st, err := os.Stat(exeDir + "/settings.json"); err == nil {
+		settingModTime = st.ModTime()
 		// path/to/whatever exists load settings
 		jsonFile, err := os.Open(exeDir + "/settings.json")
 		if err != nil {
@@ -597,6 +599,16 @@ func readSettingsFile() bool {
 }
 
 func sendPing() bool {
+	if st, err := os.Stat(exeDir + "/settings.json"); err == nil {
+		//check to see if it's updated, if it has then reload settings
+		if st.ModTime() != settingModTime {
+			log.Println("settings file modified, reloading...")
+			if !readSettingsFile() {
+				running = false
+				return false
+			}
+		}
+	}
 	serverData := pingData{
 		Secret:       settings.ClientSecret,
 		Port:         settings.ClientPort,
