@@ -31,6 +31,11 @@ import (
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to a `file`")
 var logFile = flag.String("logFile", "", "`File` to write logs to")
 
+type currentCertificate struct {
+	sync.Mutex
+	certificate *tls.Certificate
+}
+
 type configuration struct {
 	ClientSecret                string
 	ClientHostname              string
@@ -47,12 +52,15 @@ type pingData struct {
 	DiskSpace    int    `json:"disk_space"`
 	NetworkSpeed int    `json:"network_speed"`
 	BuildVersion int    `json:"build_version"`
+	TLSCreatedAt string `json:"tls_created_at,omitempty"`
 }
 type serverReply struct {
 	ImageServer string `json:"image_server"`
 	URL         string `json:"url"`
 	Compromised bool   `json:"compromised"`
 	LatestBuild int    `json:"latest_build"`
+	TokenKey    string `json:"token_key"`
+	Paused      bool   `json:"paused"`
 	TLS         struct {
 		CreatedAt   string `json:"created_at"`
 		PrivateKey  string `json:"private_key"`
@@ -72,7 +80,7 @@ type keyValue struct {
 
 var settings configuration
 var reply serverReply
-var version = 13
+var version = 15
 var exeDir string
 
 const (
@@ -94,6 +102,7 @@ var lastRequest time.Time
 var timeOfStop time.Time
 var lastPing time.Time
 var settingModTime time.Time
+var currentTLSModTime string
 
 func getFilePath(words []string) string {
 	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
@@ -485,8 +494,15 @@ func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	lastRequest = time.Now()
+	//before we do anything else, check the referer header, return 403 if it doesn't exist or isn't "https://mangadex.org"
+	ref := r.Header.Get("Referer")
+	if ref != "https://mangadex.org/" {
+		log.Println("Referer is not mangadex")
+		//w.WriteHeader(http.StatusForbidden)// this is not enforced yet
+		//return
+	}
 	// Common header
-	w.Header().Set("Server", "Mangadex@Home Node github.com/columna1/mdh-go (13)")
+	w.Header().Set("Server", "Mangadex@Home Node github.com/columna1/mdh-go ("+strconv.Itoa(version)+")")
 	words := strings.Split(r.URL.Path, "/")
 	indOffset := 0
 	for i := 0; i < len(words); i++ {
@@ -525,6 +541,28 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+var cCert = &currentCertificate{}
+
+func (c *currentCertificate) loadCertificate(cert, key []byte) error {
+	c.Lock()
+	defer c.Unlock()
+
+	certAndKey, err := tls.X509KeyPair(cert, key)
+	if err != nil {
+		return err
+	}
+
+	c.certificate = &certAndKey
+
+	return nil
+}
+
+func (c *currentCertificate) getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.certificate, nil
+}
 func startHTTPServer(wg *sync.WaitGroup) *http.Server {
 	addr := settings.ClientHostname
 	if !strings.Contains(addr, ":") {
@@ -534,11 +572,17 @@ func startHTTPServer(wg *sync.WaitGroup) *http.Server {
 	srv.IdleTimeout = 5 * time.Minute
 	srv.ReadTimeout = 30 * time.Second
 	srv.WriteTimeout = 5 * time.Minute
-	cert, err := tls.X509KeyPair([]byte(reply.TLS.Certificate), []byte(reply.TLS.PrivateKey))
+	//cert, err := tls.X509KeyPair([]byte(reply.TLS.Certificate), []byte(reply.TLS.PrivateKey))
+	err := cCert.loadCertificate([]byte(reply.TLS.Certificate), []byte(reply.TLS.PrivateKey))
 	if err != nil {
 		log.Fatalln("failed to create TLS certificate ", err)
 	}
-	srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+	//srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+	srv.TLSConfig = &tls.Config{
+		GetCertificate:           cCert.getCertificate,
+		PreferServerCipherSuites: true,
+		MinVersion:               tls.VersionTLS10,
+	}
 	log.Println("bound to " + addr + " externalPort: " + strconv.Itoa(settings.ClientPort))
 	http.HandleFunc("/", handleRequest)
 
@@ -615,6 +659,7 @@ func sendPing() bool {
 		DiskSpace:    settings.MaxCacheSizeInMebibytes,
 		NetworkSpeed: settings.MaxKilobitsPerSecond,
 		BuildVersion: version,
+		TLSCreatedAt: reply.TLS.CreatedAt,
 	}
 	serverDataMinusSecret := serverData
 	serverDataMinusSecret.Secret = "****"
@@ -656,11 +701,16 @@ func sendPing() bool {
 			string(body))
 		return false
 	}
+
 	s := "false"
 	if reply.Compromised {
 		s = "true"
 	}
-	log.Println(textColor("ping received: \n"+"compromised: "+s+" url: "+reply.URL+" image server: "+reply.ImageServer+" latestBuild: "+strconv.Itoa(reply.LatestBuild), 32))
+	t := "false"
+	if reply.Paused {
+		t = "true"
+	}
+	log.Println(textColor("ping received: \n"+"compromised: "+s+" url: "+reply.URL+" image server: "+reply.ImageServer+" latestBuild: "+strconv.Itoa(reply.LatestBuild)+" paused: "+t, 32))
 
 	lastPing = time.Now()
 	return true
@@ -729,6 +779,7 @@ func main() {
 		if sendPing() {
 			log.Println("ping succeeded\n",
 				"URL is "+reply.URL)
+			currentTLSModTime = reply.TLS.CreatedAt
 		} else {
 			log.Println("ping failed")
 			running = false
@@ -759,6 +810,14 @@ func main() {
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
 				sendPing()
+				if reply.TLS.CreatedAt != currentTLSModTime && reply.TLS.CreatedAt != "" {
+					log.Println("Certificate changed, reloading cert")
+					cCert.loadCertificate([]byte(reply.TLS.Certificate), []byte(reply.TLS.PrivateKey))
+					currentTLSModTime = reply.TLS.CreatedAt
+				}
+			}
+			if serverAPIAddress == "https://mangadex-test.net/" {
+				reply.ImageServer = "https://s5.mangadex.org"
 			}
 		}
 		log.Println("stopping server..")
