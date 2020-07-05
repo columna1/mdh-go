@@ -499,10 +499,10 @@ func handleServerError(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	lastRequest = time.Now()
 	//before we do anything else, check the referer header, return 403 if it doesn't exist or isn't "https://mangadex.org"
 	ref := r.Header.Get("Referer")
 	if !strings.HasPrefix(ref, "https://mangadex.org") {
+		//log.Println("referer not mangadex", ref, r.Header.Get("User-Agent"))
 		//w.WriteHeader(http.StatusForbidden)// this is not enforced yet
 		//return
 	}
@@ -559,6 +559,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	lastRequest = time.Now()
 
 	if (words[indOffset] == "data" || words[indOffset] == "data-saver") && len(words) > indOffset+2 {
 		// Sane URL check
