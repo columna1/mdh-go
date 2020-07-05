@@ -34,7 +34,7 @@ You get this from your clients page on mangadex.org this should be 52 chars long
 Set a hostname for people to connect with, leave this blank or 0.0.0.0 if you don't know what this is for
 ### `ClientPort`
 This is the port readers will connect to you with. If possible it is preferred to use port 443. However port 443 is a privileged port and if you don't have administrator or root access you may not be able to use it. In that case the de-facto standard port is 44300.
-### `GracefulShutdownWaitSeconds"
+### `GracefulShutdownWaitSeconds`
 This is the maximum number of seconds that the client will wait after receiving a shutdown signal. This allows readers who are still grabbing images to continue without interruption. The server may shut down earlier if no requests are received within a 10 second period.
 ### `MaxCacheSizeInMebibytes`
 This is roughly how much disk space the client will use before it starts deleting old entries. This is only a measure of file size and not disk size therefore don't allocate all your disk space or you may run into unintended behavior.
@@ -46,7 +46,7 @@ This is not used internally, just sent to the main server.
 Used to change the main server endpoint. This is used for debugging purposes, leave it blank.
 
 ## Architecture
-This client uses [badger](https://github.com/dgraph-io/badger) to store metadata about each file. The metadata stored includes the chapter hash + filename, The content-type string sent to the reader, file size, and time last accessed.  
+This client uses [badger](https://github.com/dgraph-io/badger) to store metadata about each file. The metadata stored includes the chapter hash + filename, content-type string sent to the reader, file size, and time last accessed.  
 The total disk space used is also stored in a db entry. Disk space used is never directly measured from disk.  
   
 When the client receives a request it looks it up in the cache folder. The cache folder is structured like so:  
