@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -26,6 +27,7 @@ import (
 	badger "github.com/dgraph-io/badger/v2"
 	"github.com/dgraph-io/badger/v2/options"
 	"github.com/dgraph-io/badger/v2/pb"
+	"golang.org/x/crypto/nacl/box"
 )
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to a `file`")
@@ -72,6 +74,10 @@ type keyValue struct {
 	LastAccessed int64  `json:"last_accessed"`
 	FileSize     int64  `json:"file_size"`
 	LastModified string `json:"last_modified"`
+}
+type tokenData struct {
+	Expires string `json:"expires"`
+	Hash    string `json:"hash"`
 }
 
 //file structure will be
@@ -511,6 +517,50 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+
+	//token exists try to decrypt and validate
+	if indOffset == 2 {
+		token, err := base64.RawURLEncoding.DecodeString(words[1])
+		if err != nil {
+			logNoFatal(err)
+		}
+		keybuf, err := base64.StdEncoding.DecodeString(reply.TokenKey)
+		if err != nil {
+			logNoFatal(err)
+		}
+		var decryptNonce [24]byte
+		var key [32]byte
+		copy(decryptNonce[:], token[:24])
+		copy(key[:], keybuf[:32])
+		dat, ok := box.OpenAfterPrecomputation(nil, token[24:], &decryptNonce, &key)
+		if !ok {
+			log.Println("Failed to decrypt token")
+			w.WriteHeader(http.StatusForbidden) //403
+			return
+		}
+		tok := tokenData{}
+		if err := json.Unmarshal(dat, &tok); err != nil {
+			log.Println("failed to decode token json ", err)
+		}
+		t, err := time.Parse(time.RFC3339, tok.Expires)
+		if err != nil {
+			log.Println("couldn't parse date from token")
+		}
+		if time.Now().After(t) {
+			//Token has expired return 403
+			log.Println("Token has expired")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if tok.Hash != words[indOffset+1] {
+			//hashes do not match return 410
+			log.Println("token's hash does not match")
+			log.Println(words[indOffset+1], "vs", tok.Hash)
+			w.WriteHeader(http.StatusGone)
+			return
+		}
+	}
+
 	if (words[indOffset] == "data" || words[indOffset] == "data-saver") && len(words) > indOffset+2 {
 		// Sane URL check
 		if len(words[indOffset+1]) < 6 {
@@ -711,6 +761,7 @@ func sendPing() bool {
 		t = "true"
 	}
 	log.Println(textColor("ping received: \n"+"compromised: "+s+" url: "+reply.URL+" image server: "+reply.ImageServer+" latestBuild: "+strconv.Itoa(reply.LatestBuild)+" paused: "+t, 32))
+	log.Println(reply.TokenKey)
 
 	lastPing = time.Now()
 	return true
