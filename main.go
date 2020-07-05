@@ -503,7 +503,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	//before we do anything else, check the referer header, return 403 if it doesn't exist or isn't "https://mangadex.org"
 	ref := r.Header.Get("Referer")
 	if ref != "https://mangadex.org/" {
-		log.Println("Referer is not mangadex")
+		//log.Println("Referer is not mangadex")
 		//w.WriteHeader(http.StatusForbidden)// this is not enforced yet
 		//return
 	}
