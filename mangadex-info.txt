@@ -1,6 +1,0 @@
-https://mangadex-test.net/
-To use it you visit the site and fill out the form to get a client secret. Change the api endpoint to that site and use the secret. That's it
-h8gb7v8wgvxhgmvcsbc31nvmxk2f69mjcww2yw9xs8ha4d1f26q0
-https://0n1fw25p82fej.0z5w8v14d9je6.mangadex.network:44301/47QbY73o2gXN6xViRFncgje8amffWlBpxb76fXgf5Sb6PTTLbkxhUmIjW1K7NdroEEKSQdn4JdlsgPsh7lTzRh0P4IrAk-KLTwYOGWPDkd5KdPmyBlyuwq1EKGaJKetHuH112m1k6yEW8MY3UhoQc_BdNXIlIP8SjIemo_YaT680y64BZruD97Og1BpGYLxApv1MyGv4_tLgUH8KrqGP-zA4Vw/data/8510543e2c73203c183426e0c69bf01f/D2.jpg?t=1592968845145
-make sure to derive the md5 hash from the image type, chapter hash and image filename
-
