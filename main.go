@@ -51,12 +51,12 @@ type configuration struct {
 	ServerEndpoint              string
 }
 type pingData struct {
-	Secret       string `json:"secret"`
-	Port         int    `json:"port"`
-	DiskSpace    int    `json:"disk_space"`
-	NetworkSpeed int    `json:"network_speed"`
-	BuildVersion int    `json:"build_version"`
-	TLSCreatedAt string `json:"tls_created_at,omitempty"`
+	Secret       string    `json:"secret"`
+	Port         int       `json:"port"`
+	DiskSpace    int       `json:"disk_space"`
+	NetworkSpeed int       `json:"network_speed"`
+	BuildVersion int       `json:"build_version"`
+	TLSCreatedAt time.Time `json:"tls_created_at,omitempty"`
 }
 type serverReply struct {
 	ImageServer string `json:"image_server"`
@@ -66,9 +66,9 @@ type serverReply struct {
 	TokenKey    string `json:"token_key"`
 	Paused      bool   `json:"paused"`
 	TLS         struct {
-		CreatedAt   string `json:"created_at"`
-		PrivateKey  string `json:"private_key"`
-		Certificate string `json:"certificate"`
+		CreatedAt   time.Time `json:"created_at"`
+		PrivateKey  string    `json:"private_key"`
+		Certificate string    `json:"certificate"`
 	} `json:"tls"`
 }
 type keyValue struct {
@@ -78,8 +78,8 @@ type keyValue struct {
 	LastModified string `json:"last_modified"`
 }
 type tokenData struct {
-	Expires string `json:"expires"`
-	Hash    string `json:"hash"`
+	Expires time.Time `json:"expires"`
+	Hash    string    `json:"hash"`
 }
 
 //file structure will be
@@ -110,7 +110,7 @@ var lastRequest time.Time
 var timeOfStop time.Time
 var lastPing time.Time
 var settingModTime time.Time
-var currentTLSModTime string
+var currentTLSModTime time.Time
 
 func getFilePath(words []string) string {
 	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
@@ -543,11 +543,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(dat, &tok); err != nil {
 			log.Println("failed to decode token json ", err)
 		}
-		t, err := time.Parse(time.RFC3339, tok.Expires)
 		if err != nil {
 			log.Println("couldn't parse date from token")
 		}
-		if time.Now().After(t) {
+		if time.Now().After(tok.Expires) {
 			//Token has expired return 403
 			log.Println("Token has expired")
 			w.WriteHeader(http.StatusForbidden)
@@ -866,7 +865,7 @@ func main() {
 			//cancel()
 		}()
 
-		log.Println("Starting html server.")
+		log.Println("Starting http server.")
 		httpServerExitDone := &sync.WaitGroup{}
 		httpServerExitDone.Add(1)
 		srv := startHTTPServer(httpServerExitDone)
@@ -878,7 +877,7 @@ func main() {
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
 				sendPing()
-				if reply.TLS.CreatedAt != currentTLSModTime && reply.TLS.CreatedAt != "" {
+				if !reply.TLS.CreatedAt.Equal(currentTLSModTime) && !reply.TLS.CreatedAt.IsZero() {
 					log.Println("Certificate changed, reloading cert")
 					cCert.loadCertificate([]byte(reply.TLS.Certificate), []byte(reply.TLS.PrivateKey))
 					currentTLSModTime = reply.TLS.CreatedAt
