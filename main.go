@@ -89,6 +89,7 @@ type tokenData struct {
 var settings configuration
 var reply serverReply
 var version = 15
+var clientVersion = "0.9.0"
 var exeDir string
 
 const (
@@ -741,7 +742,7 @@ func sendPing() bool {
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "MangaDex@Home Build.1.1.0")
+	req.Header.Set("User-Agent", "mdh-go Build."+clientVersion)
 	log.Println("sending request", string(formDataMinusSecret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
