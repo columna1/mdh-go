@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/pprof"
 	"strconv"
 	"strings"
@@ -32,6 +33,7 @@ import (
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to a `file`")
 var logFile = flag.String("logFile", "", "`File` to write logs to")
+var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 type currentCertificate struct {
 	sync.Mutex
@@ -583,7 +585,22 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		} else {
 			handleNotFound(w, r)
 		}
+	} else if r.URL.String() == "/stat" {
+		err := db.Update(func(txn *badger.Txn) error {
+			item, err := txn.Get([]byte("totalDiskUsed"))
+			err = item.Value(func(val []byte) error {
 
+				in := binary.LittleEndian.Uint64(val)
+				w.Write([]byte(strconv.FormatInt(int64(in), 10)))
+				return nil
+			})
+			logNoFatal(err)
+
+			return err
+		})
+		if err != nil {
+			log.Println("error disk usage badger: ", err)
+		}
 	} else {
 		//error
 		log.Println(words, indOffset, len(words))
@@ -761,7 +778,7 @@ func sendPing() bool {
 		t = "true"
 	}
 	log.Println(textColor("ping received: \n"+"compromised: "+s+" url: "+reply.URL+" image server: "+reply.ImageServer+" latestBuild: "+strconv.Itoa(reply.LatestBuild)+" paused: "+t, 32))
-	log.Println(reply.TokenKey)
+	//log.Println(reply.TokenKey)
 
 	lastPing = time.Now()
 	return true
@@ -881,6 +898,17 @@ func main() {
 		log.Println("Shutting down server")
 		if err := srv.Shutdown(context.TODO()); err != nil {
 			panic(err)
+		}
+	}
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		defer f.Close()
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
 		}
 	}
 }
