@@ -89,7 +89,7 @@ type tokenData struct {
 var settings configuration
 var reply serverReply
 var version = 16
-var clientVersion = "0.9.0"
+var clientVersion = "0.9.2"
 var exeDir string
 
 const (
