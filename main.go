@@ -195,6 +195,9 @@ func evictCache() { //just blindly removes something from cache
 
 		err := db.View(func(txn *badger.Txn) error {
 			item, err := txn.Get(keys[rand.Intn(len(keys))])
+			if err != nil {
+				log.Println("error badger get: ", err)
+			}
 			err = item.Value(func(val []byte) error {
 				var entry keyValue
 				json.Unmarshal(val, &entry)
