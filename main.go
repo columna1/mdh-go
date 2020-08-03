@@ -28,7 +28,6 @@ import (
 
 	badger "github.com/dgraph-io/badger/v2"
 	"github.com/dgraph-io/badger/v2/options"
-	"github.com/dgraph-io/badger/v2/pb"
 	"golang.org/x/crypto/nacl/box"
 )
 
@@ -99,7 +98,7 @@ const (
 	sensitiveFilePermission os.FileMode = 0600 // only owner can read sensitive data
 )
 
-var cacheDir = "cache/"
+var cacheDir = "cache"
 
 //var serverAPIAddress = "https://mangadex-test.net/"
 
@@ -115,15 +114,15 @@ var settingModTime time.Time
 var currentTLSModTime time.Time
 
 func getFilePath(words []string) string {
-	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
+	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
 }
 func getFileDir(words []string) string {
-	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1]
+	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1]
 }
 func getFilePathFromBytes(id []byte) string {
 	is := string(id)
 	words := strings.Split(is, "/")
-	return exeDir + "/" + cacheDir + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
+	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
 }
 
 func checkForFile(words []string) (exists bool) {
@@ -147,6 +146,38 @@ func logNoFatal(err error) {
 	}
 }
 
+func grabRandomKey() string { //grabs a random key by iterating over the cache dir in a random fashion
+	name := ""
+	fname := exeDir + "/" + cacheDir
+	kname := ""
+	n := 0
+	for {
+		n++
+		f, err := os.Open(fname)
+		if err != nil {
+			log.Fatal(err)
+		}
+		files, err := f.Readdir(-1)
+		f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+		//fmt.Println(len(files))
+		r := rand.Intn(len(files))
+		//fmt.Println(r, files[r].Name())
+		name = files[r].Name()
+		fname += "/" + name
+		if n == 1 || n > 4 { //TODO: magic numbers
+			kname += "/" + name
+		}
+		if !files[r].IsDir() {
+			break
+		}
+	}
+	//fmt.Println(name)
+	return kname[1:]
+}
+
 func evictCache() { //just blindly removes something from cache
 	log.Println("getting random keys")
 	// The following code generates 10 random keys
@@ -154,50 +185,13 @@ func evictCache() { //just blindly removes something from cache
 	var lowestKey []byte
 	var lowestNumSize int64
 	for i := 0; i < 10; i++ {
-		var keys [][]byte
-		count := 0
-		stream := db.NewStream()
-		stream.NumGo = 16
-
-		// overide stream.KeyToList as we only want keys. Also
-		// we can take only first version for the key.
-		stream.KeyToList = func(key []byte, itr *badger.Iterator) (*pb.KVList, error) {
-			l := &pb.KVList{}
-			// Since stream framework copies the item's key while calling
-			// KeyToList, we can directly append key to list.
-			l.Kv = append(l.Kv, &pb.KV{Key: key})
-			return l, nil
-		}
-
-		// The bigger the sample size, the more randomness in the outcome.
-		sampleSize := 1000
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		stream.Send = func(l *pb.KVList) error {
-			if count >= sampleSize {
-				return nil
-			}
-			// Collect "keys" equal to sample size
-			for _, kv := range l.Kv {
-				keys = append(keys, kv.Key)
-				count++
-				if count >= sampleSize {
-					cancel()
-					return nil
-				}
-			}
-			return nil
-		}
-
-		if err := stream.Orchestrate(ctx); err != nil && err != context.Canceled {
-			panic(err)
-		}
-		log.Println("got random key # ", i)
+		key := []byte(grabRandomKey())
+		log.Println("got random key #", i)
 		// Pick a random key from the list of keys
-		fmt.Printf("%s\n", keys[rand.Intn(len(keys))])
+		fmt.Printf("%s\n", key)
 
 		err := db.View(func(txn *badger.Txn) error {
-			item, err := txn.Get(keys[rand.Intn(len(keys))])
+			item, err := txn.Get(key)
 			if err != nil {
 				log.Println("error badger get: ", err)
 				return err
@@ -206,7 +200,7 @@ func evictCache() { //just blindly removes something from cache
 				var entry keyValue
 				json.Unmarshal(val, &entry)
 				if entry.LastAccessed < lowestNum {
-					lowestKey = keys[rand.Intn(len(keys))]
+					lowestKey = key
 					lowestNum = entry.LastAccessed
 					lowestNumSize = entry.FileSize
 				}
@@ -806,6 +800,7 @@ func sendStop() bool {
 }
 
 func main() {
+
 	flag.Parse()
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
