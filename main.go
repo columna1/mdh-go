@@ -192,7 +192,7 @@ func evictCache() { //just blindly removes something from cache
 		if err := stream.Orchestrate(ctx); err != nil && err != context.Canceled {
 			panic(err)
 		}
-		log.Println("Deleting random key")
+		log.Println("got random key # ", i)
 		// Pick a random key from the list of keys
 		fmt.Printf("%s\n", keys[rand.Intn(len(keys))])
 
