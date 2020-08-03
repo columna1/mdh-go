@@ -874,8 +874,10 @@ func main() {
 		httpServerExitDone.Add(1)
 		srv := startHTTPServer(httpServerExitDone)
 		log.Println("server started")
+		log.Println("test version 1")
 		for running {
 			time.Sleep(1 * time.Second)
+			log.Println(settings.MaxCacheSizeInMebibytes, diskUsed, uint64(settings.MaxCacheSizeInMebibytes) < diskUsed)
 			for uint64(settings.MaxCacheSizeInMebibytes) < diskUsed {
 				evictCache()
 			}
