@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -147,6 +148,7 @@ func logNoFatal(err error) {
 }
 
 func evictCache() { //just blindly removes something from cache
+	log.Println("getting random keys")
 	// The following code generates 10 random keys
 	lowestNum := int64(math.MaxInt64)
 	var lowestKey []byte
@@ -190,8 +192,9 @@ func evictCache() { //just blindly removes something from cache
 		if err := stream.Orchestrate(ctx); err != nil && err != context.Canceled {
 			panic(err)
 		}
+		log.Println("Deleting random key")
 		// Pick a random key from the list of keys
-		//fmt.Printf("%s\n", keys[rand.Intn(len(keys))])
+		fmt.Printf("%s\n", keys[rand.Intn(len(keys))])
 
 		err := db.View(func(txn *badger.Txn) error {
 			item, err := txn.Get(keys[rand.Intn(len(keys))])
@@ -901,11 +904,12 @@ func main() {
 		httpServerExitDone.Add(1)
 		srv := startHTTPServer(httpServerExitDone)
 		log.Println("server started")
-		log.Println("test version 1")
+		log.Println("test version 2")
 		for running {
 			time.Sleep(1 * time.Second)
 			log.Println(settings.MaxCacheSizeInMebibytes, diskUsed, uint64(settings.MaxCacheSizeInMebibytes) < diskUsed)
-			for uint64(settings.MaxCacheSizeInMebibytes) < diskUsed {
+			if uint64(settings.MaxCacheSizeInMebibytes) < diskUsed {
+				log.Println("Deleting something from cache")
 				evictCache()
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
