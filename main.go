@@ -857,6 +857,31 @@ func main() {
 		}
 	}
 	if running {
+		err := db.View(func(txn *badger.Txn) error {
+			item, err := txn.Get([]byte("totalDiskUsed"))
+			if err != nil && err.Error() == "Key not found" {
+				logNoFatal(err)
+				return err
+			} else if err != nil {
+				running = false
+				return err
+			}
+			err = item.Value(func(val []byte) error {
+				in := binary.LittleEndian.Uint64(val)
+				log.Println("Disk used is " + strconv.FormatUint(in, 10) + " bytes")
+				diskUsed = in
+				return nil
+			})
+			logNoFatal(err)
+
+			return err
+		})
+		if err != nil {
+			log.Println("error disk usage badger: ", err)
+		}
+	}
+	if running {
+
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt)
 		//ctx, cancel := context.WithCancel(context.Background())
