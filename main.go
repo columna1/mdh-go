@@ -964,8 +964,13 @@ func main() {
 			time.Sleep(1 * time.Second)
 			MaxCacheSizeInBytes := uint64(settings.MaxCacheSizeInMebibytes) * 1024 * 1024
 			//log.Println(MaxCacheSizeInBytes, diskUsed, MaxCacheSizeInBytes < diskUsed, int64(MaxCacheSizeInBytes)-int64(diskUsed))
-			if MaxCacheSizeInBytes < diskUsed {
+			tbd := time.Now()
+			for MaxCacheSizeInBytes < diskUsed {
 				evictCache()
+				if time.Since(tbd) > 10 {
+					log.Println("Broke out of cache evict loop, took > 10 seconds")
+					break
+				}
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
 				sendPing()
