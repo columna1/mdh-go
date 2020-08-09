@@ -116,9 +116,14 @@ var rgx *regexp.Regexp
 
 func getFilePath(words []string) string {
 	r1 := rgx.FindAllSubmatch([]byte(words[2]), -1)
-	v := r1[0]
-	fn := string(v[1]) + string(v[3])
-	if len(fn) < 3 {
+	fn := ""
+	if r1 != nil {
+		v := r1[0]
+		fn = string(v[1]) + string(v[3])
+		if len(fn) < 3 {
+			fn = words[2]
+		}
+	} else {
 		fn = words[2]
 	}
 	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + fn
@@ -135,9 +140,14 @@ func getFilePathFromBytes(id []byte) string {
 	is := string(id)
 	words := strings.Split(is, "/")
 	r1 := rgx.FindAllSubmatch([]byte(words[2]), -1)
-	v := r1[0]
-	fn := string(v[1]) + string(v[3])
-	if len(fn) < 3 {
+	fn := ""
+	if r1 != nil {
+		v := r1[0]
+		fn = string(v[1]) + string(v[3])
+		if len(fn) < 3 {
+			fn = words[2]
+		}
+	} else {
 		fn = words[2]
 	}
 	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + fn
@@ -249,10 +259,8 @@ func evictCache() { //just removes something from cache
 	}
 	wds := strings.Split(string(lowestKey), "/")
 	keypath := wds[0] + "/" + wds[1]
-	du := uint64(settings.MaxCacheSizeInMebibytes)
-	du *= 1024
-	du *= 1024
-	dif := uint64(du - diskUsed)
+	du := uint64(settings.MaxCacheSizeInMebibytes) * 1024 * 1024
+	dif := uint64(diskUsed - du)
 	log.Println(textColor("Disk usage gone over by "+strconv.FormatUint(dif, 10)+" bytes", 33))
 	log.Println(textColor("removing chapter "+keypath, 33))
 	for i := 0; i < len(d); i++ {
@@ -771,7 +779,7 @@ func sendPing() bool {
 	serverData := pingData{
 		Secret:       settings.ClientSecret,
 		Port:         settings.ClientPort,
-		DiskSpace:    settings.MaxCacheSizeInMebibytes,
+		DiskSpace:    settings.MaxCacheSizeInMebibytes * 1024 * 1024,
 		NetworkSpeed: settings.MaxKilobitsPerSecond,
 		BuildVersion: version,
 		TLSCreatedAt: reply.TLS.CreatedAt,
@@ -953,7 +961,7 @@ func main() {
 		for running {
 			time.Sleep(1 * time.Second)
 			MaxCacheSizeInBytes := uint64(settings.MaxCacheSizeInMebibytes) * 1024 * 1024
-			//log.Println(MaxCacheSizeInBytes, diskUsed, MaxCacheSizeInBytes < diskUsed, uint64(MaxCacheSizeInBytes-diskUsed))
+			//log.Println(MaxCacheSizeInBytes, diskUsed, MaxCacheSizeInBytes < diskUsed, int64(MaxCacheSizeInBytes)-int64(diskUsed))
 			if MaxCacheSizeInBytes < diskUsed {
 				evictCache()
 			}
