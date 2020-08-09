@@ -249,7 +249,12 @@ func evictCache() { //just removes something from cache
 	}
 	wds := strings.Split(string(lowestKey), "/")
 	keypath := wds[0] + "/" + wds[1]
-	log.Println("removing chapter " + keypath)
+	du := uint64(settings.MaxCacheSizeInMebibytes)
+	du *= 1024
+	du *= 1024
+	dif := uint64(du - diskUsed)
+	log.Println(textColor("Disk usage gone over by "+strconv.FormatUint(dif, 10)+" bytes", 33))
+	log.Println(textColor("removing chapter "+keypath, 33))
 	for i := 0; i < len(d); i++ {
 		err = db.Update(func(txn *badger.Txn) error {
 			//delete key
@@ -267,7 +272,7 @@ func evictCache() { //just removes something from cache
 		}
 	}
 	os.Remove(path)
-	log.Println("removed " + strconv.FormatUint(beforeDiskuse-diskUsed, 10) + " bytes")
+	log.Println(textColor("removed "+strconv.FormatUint(beforeDiskuse-diskUsed, 10)+" bytes", 33))
 }
 
 func updateTotalDiskUse(bytes int) {
@@ -725,14 +730,14 @@ func readSettingsFile() bool {
 			log.Println("Json decoding failed: ", err)
 			return false
 		}
-		settings.MaxCacheSizeInMebibytes = settings.MaxCacheSizeInMebibytes * 1024 * 1024
+		//settings.MaxCacheSizeInMebibytes = settings.MaxCacheSizeInMebibytes * 1024 * 1024
 		settings.MaxKilobitsPerSecond = settings.MaxKilobitsPerSecond * 1000 / 8
 		//TODO: sanity checking  (is the secret the right length, etc...)
 		if len(settings.ClientSecret) != 52 {
 			log.Println("Client secret need to be a 52 char alphanumeric string")
 			return false
 		}
-		if settings.MaxCacheSizeInMebibytes < 10240*1024*1024 {
+		if settings.MaxCacheSizeInMebibytes < 10240 {
 			log.Println("You need a cache of over 10GB")
 			return false
 		}
@@ -947,9 +952,9 @@ func main() {
 		log.Println("test version 2")
 		for running {
 			time.Sleep(1 * time.Second)
-			//log.Println(settings.MaxCacheSizeInMebibytes, diskUsed, uint64(settings.MaxCacheSizeInMebibytes) < diskUsed)
-			if uint64(settings.MaxCacheSizeInMebibytes) < diskUsed {
-				//log.Println("Deleting something from cache")
+			MaxCacheSizeInBytes := uint64(settings.MaxCacheSizeInMebibytes) * 1024 * 1024
+			//log.Println(MaxCacheSizeInBytes, diskUsed, MaxCacheSizeInBytes < diskUsed, uint64(MaxCacheSizeInBytes-diskUsed))
+			if MaxCacheSizeInBytes < diskUsed {
 				evictCache()
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
