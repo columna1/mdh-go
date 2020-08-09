@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -19,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/pprof"
 	"strconv"
@@ -112,17 +112,35 @@ var timeOfStop time.Time
 var lastPing time.Time
 var settingModTime time.Time
 var currentTLSModTime time.Time
+var rgx *regexp.Regexp
 
 func getFilePath(words []string) string {
-	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
+	r1 := rgx.FindAllSubmatch([]byte(words[2]), -1)
+	v := r1[0]
+	fn := string(v[1]) + string(v[3])
+	if len(fn) < 3 {
+		fn = words[2]
+	}
+	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + fn
 }
 func getFileDir(words []string) string {
+	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1]
+}
+func getFileDirFromBytes(id []byte) string {
+	is := string(id)
+	words := strings.Split(is, "/")
 	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1]
 }
 func getFilePathFromBytes(id []byte) string {
 	is := string(id)
 	words := strings.Split(is, "/")
-	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + words[2]
+	r1 := rgx.FindAllSubmatch([]byte(words[2]), -1)
+	v := r1[0]
+	fn := string(v[1]) + string(v[3])
+	if len(fn) < 3 {
+		fn = words[2]
+	}
+	return exeDir + "/" + cacheDir + "/" + words[0] + "/" + words[1][0:2] + "/" + words[1][2:4] + "/" + words[1][4:6] + "/" + words[1] + "/" + fn
 }
 
 func checkForFile(words []string) (exists bool) {
@@ -163,6 +181,9 @@ func grabRandomKey() string { //grabs a random key by iterating over the cache d
 			log.Fatal(err)
 		}
 		//fmt.Println(len(files))
+		if len(files) <= 0 {
+			break
+		}
 		r := rand.Intn(len(files))
 		//fmt.Println(r, files[r].Name())
 		name = files[r].Name()
@@ -178,17 +199,17 @@ func grabRandomKey() string { //grabs a random key by iterating over the cache d
 	return kname[1:]
 }
 
-func evictCache() { //just blindly removes something from cache
-	log.Println("getting random keys")
+func evictCache() { //just removes something from cache
+	beforeDiskuse := diskUsed
 	// The following code generates 10 random keys
 	lowestNum := int64(math.MaxInt64)
 	var lowestKey []byte
 	var lowestNumSize int64
 	for i := 0; i < 10; i++ {
 		key := []byte(grabRandomKey())
-		log.Println("got random key #", i)
+		//log.Println("got random key #", i)
 		// Pick a random key from the list of keys
-		fmt.Printf("%s\n", key)
+		//fmt.Printf("%s\n", key)
 
 		err := db.View(func(txn *badger.Txn) error {
 			item, err := txn.Get(key)
@@ -213,21 +234,40 @@ func evictCache() { //just blindly removes something from cache
 			return
 		}
 	}
-	//delete lowest key and update diskuse
-	err := db.Update(func(txn *badger.Txn) error {
-		//delete key
-		log.Println("deleted " + string(lowestKey))
-		log.Println("removing " + getFilePathFromBytes(lowestKey))
-		err := os.Remove(getFilePathFromBytes(lowestKey))
-		logNoFatal(err)
-		err = txn.Delete(lowestKey)
-		return err
-	})
+	//delete chapter of lowest key and update diskuse
+	path := getFileDirFromBytes(lowestKey)
+	//log.Println(lowestKey, path)
+	f, err := os.Open(path)
 	if err != nil {
-		log.Println("error badger: ", err)
-	} else {
-		updateTotalDiskUse(0 - int(lowestNumSize))
+		logNoFatal(err)
+		return
 	}
+	d, err := f.Readdir(-1)
+	if err != nil {
+		logNoFatal(err)
+		return
+	}
+	wds := strings.Split(string(lowestKey), "/")
+	keypath := wds[0] + "/" + wds[1]
+	log.Println("removing chapter " + keypath)
+	for i := 0; i < len(d); i++ {
+		err = db.Update(func(txn *badger.Txn) error {
+			//delete key
+			//log.Println("deleted " + path + "/" + d[i].Name())
+			err := os.Remove(path + "/" + d[i].Name())
+			logNoFatal(err)
+			err = txn.Delete([]byte(keypath + "/" + d[i].Name()))
+			//log.Println(keypath + "/" + d[i].Name())
+			return err
+		})
+		if err != nil {
+			log.Println("error badger: ", err)
+		} else {
+			updateTotalDiskUse(0 - int(lowestNumSize))
+		}
+	}
+	os.Remove(path)
+	log.Println("removed " + strconv.FormatUint(beforeDiskuse-diskUsed, 10) + " bytes")
 }
 
 func updateTotalDiskUse(bytes int) {
@@ -284,6 +324,7 @@ func handleCacheHit(w http.ResponseWriter, r *http.Request, words []string) {
 	id := words[0] + "/" + words[1] + "/" + words[2]
 	log.Println(textColor("Cache hit for "+id, 36))
 	err := db.Update(func(txn *badger.Txn) error {
+		//log.Println(id)
 		item, err := txn.Get([]byte(id))
 		logNoFatal(err)
 		if err != nil {
@@ -879,6 +920,10 @@ func main() {
 		if err != nil {
 			log.Println("error disk usage badger: ", err)
 		}
+		rgx, err = regexp.Compile("^([a-zA-Z]?[0-9]+)-?([a-fA-Z0-9]+)?(.[A-Za-z]+)")
+		if err != nil {
+			log.Panic(err)
+		}
 	}
 	if running {
 
@@ -902,9 +947,9 @@ func main() {
 		log.Println("test version 2")
 		for running {
 			time.Sleep(1 * time.Second)
-			log.Println(settings.MaxCacheSizeInMebibytes, diskUsed, uint64(settings.MaxCacheSizeInMebibytes) < diskUsed)
+			//log.Println(settings.MaxCacheSizeInMebibytes, diskUsed, uint64(settings.MaxCacheSizeInMebibytes) < diskUsed)
 			if uint64(settings.MaxCacheSizeInMebibytes) < diskUsed {
-				log.Println("Deleting something from cache")
+				//log.Println("Deleting something from cache")
 				evictCache()
 			}
 			if time.Since(lastPing).Seconds() >= 44 {
