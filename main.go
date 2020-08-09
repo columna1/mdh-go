@@ -89,7 +89,7 @@ type tokenData struct {
 var settings configuration
 var reply serverReply
 var version = 16
-var clientVersion = "0.9.2"
+var clientVersion = "1.0.0"
 var exeDir string
 
 const (
@@ -618,7 +618,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	lastRequest = time.Now()
-
+	//TODO: check to see if file exists under a different name(example: new url format for an old file.)
+	//this isn't critical as when/if old files update on the backend, the client will re download and
+	//the old ones will get deleted eventually
 	if (words[indOffset] == "data" || words[indOffset] == "data-saver") && len(words) > indOffset+2 {
 		// Sane URL check
 		if len(words[indOffset+1]) < 6 {
