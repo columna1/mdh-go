@@ -1,3 +1,5 @@
+# WARNING This project is unmaintained. This program probably won't work in it's current and I don't have the motivation or time to maintain this project. If you want to take this project over just contact me. otherwise just use the official client or a maintained 3rd party client.
+
 # Mangadex@Home client written in go!
 Unofficial client for Mangadex@home written by columna1 with help from [jeremiejig](https://github.com/jeremiejig)
 ## Support
